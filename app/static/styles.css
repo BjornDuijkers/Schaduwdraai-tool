@@ -345,6 +345,217 @@ dd {
   margin: 6px 0;
 }
 
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 28px;
+  margin-bottom: 12px;
+}
+
+.section-heading p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.deviation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.deviation-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: clip;
+}
+
+.deviation-item[open] {
+  box-shadow: 0 18px 38px rgba(17, 45, 98, 0.08);
+}
+
+.deviation-item summary {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(0, 2.6fr) 108px 84px 54px;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.deviation-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.deviation-item summary > * {
+  min-width: 0;
+}
+
+.deviation-item summary::after {
+  content: "Open";
+  justify-self: end;
+  grid-column: 5;
+  grid-row: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--salure-blue-soft);
+  color: var(--salure-blue);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.deviation-item[open] summary::after {
+  content: "Sluit";
+}
+
+.summary-person {
+  display: grid;
+  min-width: 0;
+}
+
+.summary-person strong {
+  overflow: hidden;
+  color: var(--salure-blue);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-person small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.summary-issue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--body);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-count {
+  justify-self: start;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #8a2f24;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.summary-total {
+  justify-self: end;
+  min-width: 80px;
+  color: var(--salure-blue);
+  font-size: 14px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.summary-total.negative {
+  color: #9d3327;
+}
+
+.summary-total.positive {
+  color: var(--salure-green-dark);
+}
+
+.deviation-detail {
+  border-top: 1px solid var(--line);
+  padding: 16px 14px 18px;
+  background: #fbfdff;
+}
+
+.deviation-detail h3 {
+  margin: 16px 0 8px;
+  color: var(--salure-blue);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.deviation-detail h3:first-of-type {
+  margin-top: 10px;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-meta span {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--body);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.compact-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.compact-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.compact-table th {
+  position: sticky;
+  top: 0;
+  background: var(--salure-blue);
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.compact-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.empty-state {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--ok);
+  color: var(--salure-blue);
+}
+
+.empty-state p {
+  margin: 4px 0 0;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
@@ -395,7 +606,7 @@ td {
   background: var(--info);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .brand-bar {
     align-items: flex-start;
     flex-direction: column;
@@ -429,5 +640,26 @@ td {
   .result-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .deviation-item summary {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .deviation-item summary::after {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .summary-issue {
+    white-space: normal;
+  }
+
+  .summary-total {
+    justify-self: start;
+    padding-right: 0;
+    text-align: left;
   }
 }

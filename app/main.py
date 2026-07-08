@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from werkzeug.utils import secure_filename
 
 from .comparator import compare_documents, load_component_mappings
 from .extractor import extract_pdf_text
+from .models import ComponentComparison, ComparisonResult
 from .parser import parse_document
 from .report import create_excel_report
 
@@ -74,7 +76,7 @@ def compare():
             doc_a=parsed_a,
             doc_b=parsed_b,
             report_name=report_path.name,
-            preview_components=result.components[:150],
+            overview=_build_result_overview(result),
         )
     except Exception as exc:
         flash(str(exc))
@@ -123,6 +125,138 @@ def _read_tolerance() -> Decimal:
         return Decimal(raw)
     except InvalidOperation as exc:
         raise ValueError("Tolerantie moet een getal zijn, bijvoorbeeld 0.01.") from exc
+
+
+def _build_result_overview(result: ComparisonResult) -> dict[str, object]:
+    component_groups: dict[tuple[str, str], list[ComponentComparison]] = defaultdict(list)
+    for component in result.components:
+        key = (component.employee_name or "", component.birth_date or "")
+        component_groups[key].append(component)
+
+    rows: list[dict[str, object]] = []
+    clean_count = 0
+    seen_keys: set[tuple[str, str]] = set()
+
+    for employee in result.employees:
+        key = (employee.employee_name or "", employee.birth_date or "")
+        seen_keys.add(key)
+        components = sorted(
+            component_groups.get(key, []),
+            key=lambda row: (row.status == "OK", row.canonical_component.lower()),
+        )
+        deviations = [component for component in components if component.status != "OK"]
+        row = _overview_row(
+            employee_name=employee.employee_name,
+            birth_date=employee.birth_date,
+            status=employee.status,
+            match_note=employee.match_note,
+            pages_a=employee.source_a_pages,
+            pages_b=employee.source_b_pages,
+            components=components,
+            deviations=deviations,
+        )
+
+        if row["has_deviation"]:
+            rows.append(row)
+        else:
+            clean_count += 1
+
+    for key, components in component_groups.items():
+        if key in seen_keys:
+            continue
+        deviations = [component for component in components if component.status != "OK"]
+        row = _overview_row(
+            employee_name=key[0],
+            birth_date=key[1],
+            status="MATCH",
+            match_note="",
+            pages_a=components[0].pages_a if components else "",
+            pages_b=components[0].pages_b if components else "",
+            components=components,
+            deviations=deviations,
+        )
+        if row["has_deviation"]:
+            rows.append(row)
+        else:
+            clean_count += 1
+
+    return {
+        "rows": rows,
+        "clean_count": clean_count,
+        "deviation_payslips": len(rows),
+        "total_payslips": len(result.employees),
+    }
+
+
+def _overview_row(
+    *,
+    employee_name: str | None,
+    birth_date: str | None,
+    status: str,
+    match_note: str,
+    pages_a: str,
+    pages_b: str,
+    components: list[ComponentComparison],
+    deviations: list[ComponentComparison],
+) -> dict[str, object]:
+    difference_total = sum(
+        (component.difference for component in deviations if component.difference is not None),
+        Decimal("0"),
+    )
+    deviation_labels = [
+        _deviation_label(component)
+        for component in deviations[:3]
+    ]
+    extra_count = max(len(deviations) - len(deviation_labels), 0)
+    if extra_count:
+        deviation_labels.append(f"+{extra_count} meer")
+
+    has_deviation = status != "MATCH" or bool(deviations)
+    status_counts = {
+        "ok": sum(1 for component in components if component.status == "OK"),
+        "verschil": sum(1 for component in components if component.status == "VERSCHIL"),
+        "alleen_a": sum(1 for component in components if component.status == "ALLEEN_IN_A"),
+        "alleen_b": sum(1 for component in components if component.status == "ALLEEN_IN_B"),
+    }
+    if status != "MATCH" and not deviations:
+        deviation_labels.append(match_note or status)
+
+    return {
+        "employee_name": employee_name or "Onbekende medewerker",
+        "birth_date": birth_date or "",
+        "status": status,
+        "match_note": match_note,
+        "pages_a": pages_a,
+        "pages_b": pages_b,
+        "components": components,
+        "deviations": deviations,
+        "component_count": len(components),
+        "deviation_count": len(deviations) if status == "MATCH" else max(len(deviations), 1),
+        "difference_total": _format_amount(difference_total),
+        "difference_total_raw": difference_total,
+        "deviation_summary": "; ".join(deviation_labels) if deviation_labels else "Geen afwijkingen",
+        "has_deviation": has_deviation,
+        "status_counts": status_counts,
+    }
+
+
+def _deviation_label(component: ComponentComparison) -> str:
+    if component.status == "VERSCHIL":
+        return f"{component.canonical_component} ({_format_amount(component.difference)})"
+    if component.status == "ALLEEN_IN_A":
+        return f"{component.canonical_component} alleen A"
+    if component.status == "ALLEEN_IN_B":
+        return f"{component.canonical_component} alleen B"
+    return component.canonical_component
+
+
+def _format_amount(value: Decimal | None) -> str:
+    if value is None:
+        return ""
+    sign = "-" if value < 0 else ""
+    amount = abs(value)
+    formatted = f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{sign}{formatted}"
 
 
 if __name__ == "__main__":

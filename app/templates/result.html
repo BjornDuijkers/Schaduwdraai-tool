@@ -62,36 +62,109 @@
           </section>
         {% endif %}
 
-        <section>
-          <h2>Preview componentvergelijking</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Naam</th>
-                  <th>Geboortedatum</th>
-                  <th>Component</th>
-                  <th>Bedrag A</th>
-                  <th>Bedrag B</th>
-                  <th>Verschil</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in preview_components %}
-                  <tr class="status-{{ row.status|lower|replace('_', '-') }}">
-                    <td>{{ row.status }}</td>
-                    <td>{{ row.employee_name or '' }}</td>
-                    <td>{{ row.birth_date or '' }}</td>
-                    <td>{{ row.canonical_component }}</td>
-                    <td>{{ row.amount_a if row.amount_a is not none else '' }}</td>
-                    <td>{{ row.amount_b if row.amount_b is not none else '' }}</td>
-                    <td>{{ row.difference if row.difference is not none else '' }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+        <section class="deviation-section">
+          <div class="section-heading">
+            <div>
+              <h2>Afwijkingen per loonstrook</h2>
+              <p>{{ overview.deviation_payslips }} loonstrook{% if overview.deviation_payslips != 1 %}ken{% endif %} met afwijkingen{% if overview.clean_count %}, {{ overview.clean_count }} zonder afwijkingen{% endif %}</p>
+            </div>
           </div>
+
+          {% if overview.rows %}
+            <div class="deviation-list">
+              {% for item in overview.rows %}
+                <details class="deviation-item">
+                  <summary>
+                    <span class="summary-person">
+                      <strong>{{ item.employee_name }}</strong>
+                      <small>{{ item.birth_date }}</small>
+                    </span>
+                    <span class="summary-issue">{{ item.deviation_summary }}</span>
+                    <span class="summary-count">{{ item.deviation_count }} afwijking{% if item.deviation_count != 1 %}en{% endif %}</span>
+                    <span class="summary-total {% if item.difference_total_raw < 0 %}negative{% elif item.difference_total_raw > 0 %}positive{% endif %}">{{ item.difference_total }}</span>
+                  </summary>
+
+                  <div class="deviation-detail">
+                    <div class="detail-meta">
+                      <span>Status: {{ item.status }}</span>
+                      <span>Pagina's A: {{ item.pages_a or '-' }}</span>
+                      <span>Pagina's B: {{ item.pages_b or '-' }}</span>
+                      <span>{{ item.component_count }} componenten</span>
+                    </div>
+
+                    {% if item.match_note %}
+                      <p class="detail-note">{{ item.match_note }}</p>
+                    {% endif %}
+
+                    {% if item.deviations %}
+                      <h3>Afwijkingen</h3>
+                      <div class="compact-table-wrap">
+                        <table class="compact-table">
+                          <thead>
+                            <tr>
+                              <th>Status</th>
+                              <th>Component</th>
+                              <th>A</th>
+                              <th>B</th>
+                              <th>Verschil</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for component in item.deviations %}
+                              <tr class="status-{{ component.status|lower|replace('_', '-') }}">
+                                <td>{{ component.status }}</td>
+                                <td>{{ component.canonical_component }}</td>
+                                <td>{{ component.amount_a if component.amount_a is not none else '' }}</td>
+                                <td>{{ component.amount_b if component.amount_b is not none else '' }}</td>
+                                <td>{{ component.difference if component.difference is not none else '' }}</td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    {% endif %}
+
+                    {% if item.components %}
+                      <h3>Volledige loonstrookvergelijking</h3>
+                      <div class="compact-table-wrap">
+                        <table class="compact-table">
+                          <thead>
+                            <tr>
+                              <th>Status</th>
+                              <th>Component</th>
+                              <th>Component A</th>
+                              <th>Bedrag A</th>
+                              <th>Component B</th>
+                              <th>Bedrag B</th>
+                              <th>Verschil</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for component in item.components %}
+                              <tr class="status-{{ component.status|lower|replace('_', '-') }}">
+                                <td>{{ component.status }}</td>
+                                <td>{{ component.canonical_component }}</td>
+                                <td>{{ component.component_a or '' }}</td>
+                                <td>{{ component.amount_a if component.amount_a is not none else '' }}</td>
+                                <td>{{ component.component_b or '' }}</td>
+                                <td>{{ component.amount_b if component.amount_b is not none else '' }}</td>
+                                <td>{{ component.difference if component.difference is not none else '' }}</td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    {% endif %}
+                  </div>
+                </details>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <strong>Geen afwijkingen gevonden.</strong>
+              <p>Alle gematchte loonstroken vallen binnen de ingestelde tolerantie.</p>
+            </div>
+          {% endif %}
         </section>
 
         <div class="actions secondary">
