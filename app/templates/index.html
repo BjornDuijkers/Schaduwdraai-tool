@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Schaduwdraaitool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="brand-bar">
+      <a class="brand-mark" href="{{ url_for('index') }}" aria-label="Schaduwdraaitool start">
+        <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
+      </a>
+      <p>Samen slim vooruit</p>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Lokale payroll vergelijking</p>
+        <h1>Schaduwdraaitool</h1>
+        <p>Selecteer twee loonstrookbundels en ontvang een controleerbaar Excelrapport met matches, componentverschillen en OCR-waarschuwingen.</p>
+      </section>
+
+      <section class="tool-surface">
+        <div class="surface-heading">
+          <h2>Documenten vergelijken</h2>
+          <span class="security-chip">Lokaal verwerkt</span>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert">
+              {% for message in messages %}
+                <p>{{ message }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form class="upload-form" action="{{ url_for('compare') }}" method="post" enctype="multipart/form-data">
+          <div class="grid">
+            <label class="file-field">
+              <span>Document A</span>
+              <input type="file" name="document_a" accept="application/pdf,.pdf" required>
+            </label>
+            <label class="file-field">
+              <span>Document B</span>
+              <input type="file" name="document_b" accept="application/pdf,.pdf" required>
+            </label>
+          </div>
+
+          <div class="options">
+            <label>
+              <span>Tolerantie bedrag</span>
+              <input type="text" name="tolerance" value="0.01" inputmode="decimal">
+            </label>
+            <label>
+              <span>Componentmapping CSV</span>
+              <input type="file" name="mapping_csv" accept=".csv,text/csv">
+            </label>
+          </div>
+
+          <label class="mapping-text">
+            <span>Componentmapping plakken</span>
+            <textarea name="mapping_text" rows="6" placeholder="document_a,document_b,canonical&#10;1000 Bruto salaris,SAL_BASIS,Bruto salaris"></textarea>
+          </label>
+
+          <div class="actions">
+            <button type="submit">Vergelijk documenten</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

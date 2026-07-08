@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Resultaat - Schaduwdraaitool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="brand-bar">
+      <a class="brand-mark" href="{{ url_for('index') }}" aria-label="Schaduwdraaitool start">
+        <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
+      </a>
+      <p>Samen slim vooruit</p>
+    </header>
+
+    <main class="shell wide">
+      <section class="hero compact">
+        <p class="eyebrow">Vergelijking gereed</p>
+        <div class="result-header">
+          <div>
+            <h1>Resultaat</h1>
+            <p>{{ doc_a.source_name }} vergeleken met {{ doc_b.source_name }}</p>
+          </div>
+          <a class="button" href="{{ url_for('download', project_id=project_id, filename=report_name) }}">Download Excelrapport</a>
+        </div>
+      </section>
+
+      <section class="tool-surface">
+        <div class="summary-grid">
+          <div><span>{{ result.summary.gematchte_medewerkers }}</span><p>matches</p></div>
+          <div><span>{{ result.summary.componenten_ok }}</span><p>componenten OK</p></div>
+          <div><span>{{ result.summary.componentverschillen }}</span><p>verschillen</p></div>
+          <div><span>{{ result.summary.waarschuwingen }}</span><p>waarschuwingen</p></div>
+        </div>
+
+        <div class="two-col">
+          <section>
+            <h2>Documenten</h2>
+            <dl>
+              <dt>A</dt><dd>{{ doc_a.source_name }} - {{ result.summary.loonstroken_document_a }} loonstroken, {{ result.summary.componenten_document_a }} componenten</dd>
+              <dt>B</dt><dd>{{ doc_b.source_name }} - {{ result.summary.loonstroken_document_b }} loonstroken, {{ result.summary.componenten_document_b }} componenten</dd>
+            </dl>
+          </section>
+          <section>
+            <h2>Status</h2>
+            <dl>
+              <dt>Alleen A</dt><dd>{{ result.summary.alleen_in_a }}</dd>
+              <dt>Alleen B</dt><dd>{{ result.summary.alleen_in_b }}</dd>
+            </dl>
+          </section>
+        </div>
+
+        {% if result.warnings %}
+          <section>
+            <h2>Waarschuwingen</h2>
+            <ul class="warnings">
+              {% for warning in result.warnings[:12] %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
+
+        <section>
+          <h2>Preview componentvergelijking</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Naam</th>
+                  <th>Geboortedatum</th>
+                  <th>Component</th>
+                  <th>Bedrag A</th>
+                  <th>Bedrag B</th>
+                  <th>Verschil</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in preview_components %}
+                  <tr class="status-{{ row.status|lower|replace('_', '-') }}">
+                    <td>{{ row.status }}</td>
+                    <td>{{ row.employee_name or '' }}</td>
+                    <td>{{ row.birth_date or '' }}</td>
+                    <td>{{ row.canonical_component }}</td>
+                    <td>{{ row.amount_a if row.amount_a is not none else '' }}</td>
+                    <td>{{ row.amount_b if row.amount_b is not none else '' }}</td>
+                    <td>{{ row.difference if row.difference is not none else '' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="actions secondary">
+          <a href="{{ url_for('index') }}">Nieuwe vergelijking</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

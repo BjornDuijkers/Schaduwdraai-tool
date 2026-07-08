@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import unittest
+from decimal import Decimal
+
+from app.comparator import compare_documents
+from app.models import ExtractionResult, PageText, TextWord
+from app.parser import parse_document
+
+
+SAMPLE_A = """
+Naam: Jan Jansen
+Geboortedatum: 01-02-1980
+Periode: 2026-01
+1000 Bruto salaris 3.000,00
+2000 Pensioenpremie -150,00
+Netto loon 2.250,00
+"""
+
+SAMPLE_B = """
+Werknemer: Jan Jansen
+Geb.datum: 01-02-1980
+Loonperiode: 2026-01
+1000 Bruto salaris 3.000,00
+2000 Pensioenpremie -150,00
+Netto loon 2.240,00
+"""
+
+
+class CoreFlowTest(unittest.TestCase):
+    def test_parse_and_compare_sample_payslip(self) -> None:
+        doc_a = parse_document(
+            ExtractionResult("a.pdf", [PageText(1, SAMPLE_A)]),
+            source="A",
+        )
+        doc_b = parse_document(
+            ExtractionResult("b.pdf", [PageText(1, SAMPLE_B)]),
+            source="B",
+        )
+
+        self.assertEqual(len(doc_a.payslips), 1)
+        self.assertEqual(doc_a.payslips[0].employee_name, "Jan Jansen")
+        self.assertEqual(doc_a.payslips[0].birth_date, "1980-02-01")
+        self.assertGreaterEqual(len(doc_a.payslips[0].components), 3)
+
+        result = compare_documents(doc_a, doc_b)
+        self.assertEqual(result.summary["gematchte_medewerkers"], 1)
+        self.assertEqual(result.summary["componentverschillen"], 1)
+
+        net_row = next(row for row in result.components if "Netto loon" in row.canonical_component)
+        self.assertEqual(net_row.status, "VERSCHIL")
+        self.assertEqual(net_row.difference, Decimal("-10.00"))
+
+    def test_default_aliases_compare_afas_loket_labels(self) -> None:
+        doc_a = parse_document(
+            ExtractionResult(
+                "a.pdf",
+                [
+                    PageText(
+                        1,
+                        """
+Loonstrook
+P.J. Verbeek
+Geboortedatum
+27-02-1975
+Salaris (Uit uren gewerkt) 6.027,00
+Loonheffing -100,00
+""",
+                    )
+                ],
+            ),
+            source="A",
+        )
+        doc_b = parse_document(
+            ExtractionResult(
+                "b.pdf",
+                [
+                    PageText(
+                        1,
+                        """
+DE HEER PJ VERBEEK
+Geb. datum 27-02-1975
+LOON/SALARIS 6.027,00
+LB/PR.VOLKSVZ. -90,00
+""",
+                    )
+                ],
+            ),
+            source="B",
+        )
+
+        result = compare_documents(doc_a, doc_b)
+
+        self.assertEqual(result.summary["gematchte_medewerkers"], 1)
+        labels = {row.canonical_component: row for row in result.components}
+        self.assertEqual(labels["Salaris"].status, "OK")
+        self.assertEqual(labels["Loonheffing"].status, "VERSCHIL")
+
+    def test_parse_afas_layout_table_components(self) -> None:
+        page = PageText(
+            1,
+            "\n".join(
+                [
+                    "Februari 2026",
+                    "Loonstrook",
+                    "Meindert van den Eykel",
+                    "Geboortedatum",
+                    "31-03-1961",
+                ]
+            ),
+            words=[
+                TextWord(18, 10, 90, 18, "Omschrijving"),
+                TextWord(213, 10, 250, 18, "Aantal"),
+                TextWord(281, 10, 315, 18, "Basis"),
+                TextWord(336, 10, 390, 18, "Bruto/netto"),
+                TextWord(414, 10, 460, 18, "Normaal"),
+                TextWord(530, 10, 585, 18, "Cumulatief"),
+                TextWord(18, 30, 45, 38, "Salaris"),
+                TextWord(50, 30, 75, 38, "(Uit"),
+                TextWord(80, 30, 110, 38, "uren"),
+                TextWord(115, 30, 160, 38, "gewerkt)"),
+                TextWord(214, 30, 248, 38, "160,00"),
+                TextWord(352, 30, 400, 38, "5.510,46"),
+                TextWord(417, 30, 465, 38, "5.510,46"),
+                TextWord(538, 30, 590, 38, "11.020,92"),
+                TextWord(18, 50, 80, 58, "Keuzemodel:"),
+                TextWord(85, 50, 140, 58, "inhouding"),
+                TextWord(145, 50, 180, 58, "salaris"),
+                TextWord(361, 50, 405, 58, "-60,00"),
+                TextWord(426, 50, 470, 58, "-60,00"),
+                TextWord(18, 63, 130, 71, "(Sportabonnement)"),
+                TextWord(18, 90, 75, 98, "Nettoloon"),
+                TextWord(352, 90, 400, 98, "3.708,94"),
+                TextWord(417, 90, 465, 98, "5.471,94"),
+                TextWord(18, 120, 90, 128, "Medewerker"),
+                TextWord(94, 120, 130, 128, "Holding"),
+            ],
+        )
+
+        doc = parse_document(ExtractionResult("afas.pdf", [page]), source="A")
+
+        self.assertEqual(doc.payslips[0].employee_name, "Meindert van den Eykel")
+        self.assertEqual(doc.payslips[0].birth_date, "1961-03-31")
+        self.assertEqual(doc.payslips[0].period, "Februari 2026")
+        self.assertEqual(len(doc.payslips[0].components), 3)
+        self.assertEqual(doc.payslips[0].components[1].label, "Keuzemodel: inhouding salaris (Sportabonnement)")
+        self.assertEqual(doc.payslips[0].components[2].amount, Decimal("3708.94"))
+
+
+if __name__ == "__main__":
+    unittest.main()
