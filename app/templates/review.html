@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review - Schaduwdraaitool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="brand-bar">
+      <a class="brand-mark" href="{{ url_for('index') }}" aria-label="Schaduwdraaitool start">
+        <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
+      </a>
+      <p>Samen slim vooruit</p>
+    </header>
+
+    <main class="shell wide">
+      <section class="hero compact">
+        <p class="eyebrow">Interactieve review</p>
+        <div class="result-header">
+          <div>
+            <h1>Verschillen beoordelen</h1>
+            <p>{{ doc_a.source_name }} vergeleken met {{ doc_b.source_name }}</p>
+          </div>
+          <div class="button-row">
+            <a class="button secondary-button" href="{{ url_for('download_issues', project_id=project_id) }}">Download issues</a>
+            <a class="button" href="{{ url_for('download', project_id=project_id, filename='schaduwdraai_rapport.xlsx') }}">Download Excelrapport</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="tool-surface">
+        <div class="summary-grid">
+          <div><span>{{ overview.deviation_payslips }}</span><p>loonstroken met afwijking</p></div>
+          <div><span>{{ result.summary.componentverschillen }}</span><p>bedragverschillen</p></div>
+          <div><span>{{ result.summary.componenten_alleen_in_a + result.summary.componenten_alleen_in_b }}</span><p>ontbrekende componenten</p></div>
+          <div><span>{{ result.summary.waarschuwingen }}</span><p>waarschuwingen</p></div>
+        </div>
+
+        <section class="context-panel">
+          <h2>Context</h2>
+          <dl>
+            <dt>Periode A</dt><dd>{{ doc_a.normalized_period or doc_a.period or '-' }}</dd>
+            <dt>Periode B</dt><dd>{{ doc_b.normalized_period or doc_b.period or '-' }}</dd>
+            <dt>Provider A</dt><dd>{{ doc_a.provider or '-' }}</dd>
+            <dt>Provider B</dt><dd>{{ doc_b.provider or '-' }}</dd>
+            <dt>Scenario A</dt><dd>{{ doc_a.scenario or '-' }}</dd>
+            <dt>Scenario B</dt><dd>{{ doc_b.scenario or '-' }}</dd>
+          </dl>
+        </section>
+
+        <div class="tab-list" role="tablist" aria-label="Review onderdelen">
+          <button class="tab-button is-active" id="tab-review" type="button" role="tab" aria-selected="true" aria-controls="tabpanel-review" data-tab-target="tabpanel-review">Reviewregels</button>
+          <button class="tab-button" id="tab-mapping" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="tabpanel-mapping" data-tab-target="tabpanel-mapping">Componentmapping</button>
+        </div>
+
+        <section class="tab-panel" id="tabpanel-review" role="tabpanel" aria-labelledby="tab-review">
+          <section class="deviation-section">
+            <div class="section-heading">
+              <div>
+                <h2>Reviewregels</h2>
+                <p>Wijzigingen worden lokaal opgeslagen en meegenomen in de Excel-download.</p>
+              </div>
+            </div>
+
+            {% if overview.rows %}
+              <div class="deviation-list">
+                {% for item in overview.rows %}
+                  <details class="deviation-item" open>
+                    <summary>
+                      <span class="summary-person">
+                        <strong>{{ item.employee_name }}</strong>
+                        <small>{{ item.birth_date }}{% if item.employee_code %} - code {{ item.employee_code }}{% endif %}</small>
+                      </span>
+                      <span class="summary-issue">{{ item.deviation_summary }}</span>
+                      <span class="summary-count">{{ item.deviation_count }} afwijking{% if item.deviation_count != 1 %}en{% endif %}</span>
+                      <span class="summary-total {% if item.difference_total_raw < 0 %}negative{% elif item.difference_total_raw > 0 %}positive{% endif %}">{{ item.difference_total }}</span>
+                    </summary>
+
+                    <div class="deviation-detail">
+                      <div class="detail-meta">
+                        <span>Status: {{ item.status }}</span>
+                        <span>Code: {{ item.employee_code or '-' }}</span>
+                        <span>Pagina's A: {{ item.pages_a or '-' }}</span>
+                        <span>Pagina's B: {{ item.pages_b or '-' }}</span>
+                      </div>
+
+                      {% for component in item.deviations %}
+                        <article class="review-card" data-review-row data-deviation-id="{{ component.deviation_id }}">
+                          <div class="review-main">
+                            <div>
+                              <strong>{{ component.canonical_component }}</strong>
+                              <p>{{ component.status }}{% if component.difference is not none %} - verschil {{ component.difference }}{% endif %}</p>
+                            </div>
+                            <div class="amount-pair">
+                              <span>A: {{ component.component_a or '-' }} {{ component.amount_a if component.amount_a is not none else '' }}</span>
+                              <span>B: {{ component.component_b or '-' }} {{ component.amount_b if component.amount_b is not none else '' }}</span>
+                            </div>
+                          </div>
+
+                          <div class="review-controls">
+                            <div class="status-button-field">
+                              <span>Reviewstatus</span>
+                              <input type="hidden" name="status" value="{{ component.review_status }}">
+                              <div class="status-button-group" role="group" aria-label="Reviewstatus">
+                                {% for status in review_statuses %}
+                                  <button
+                                    type="button"
+                                    class="status-button {% if component.review_status == status %}is-active{% endif %}"
+                                    data-status-value="{{ status }}"
+                                    aria-pressed="{% if component.review_status == status %}true{% else %}false{% endif %}"
+                                  >
+                                    {{ status }}
+                                  </button>
+                                {% endfor %}
+                              </div>
+                            </div>
+                            <label class="review-note">
+                              <span>Opmerking</span>
+                              <textarea name="note" rows="2" placeholder="Voeg een toelichting toe">{{ component.review_note }}</textarea>
+                            </label>
+                            <span class="save-state" data-save-state></span>
+                          </div>
+                        </article>
+                      {% endfor %}
+                    </div>
+                  </details>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="empty-state">
+                <strong>Geen afwijkingen gevonden.</strong>
+                <p>Er zijn geen reviewregels nodig voor deze vergelijking.</p>
+              </div>
+            {% endif %}
+          </section>
+        </section>
+
+        <section class="tab-panel" id="tabpanel-mapping" role="tabpanel" aria-labelledby="tab-mapping" hidden>
+          <div class="mapping-layout">
+            <section class="mapping-panel">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h2>Ongekoppelde componenten koppelen</h2>
+                  <p>Kies bij een component uit document A het bijpassende component uit document B. Na opslaan wordt deze review opnieuw berekend.</p>
+                </div>
+                <label class="mapping-toggle">
+                  <input type="checkbox" data-show-all-components>
+                  <span>Alle componenten tonen</span>
+                </label>
+              </div>
+
+              {% if component_inventory.unmatched_a %}
+                <div class="compact-table-wrap">
+                  <table class="compact-table mapping-table quick-map-table">
+                    <thead>
+                      <tr>
+                        <th>Component A</th>
+                        <th>Aantal</th>
+                        <th>Koppel aan component B</th>
+                        <th>Canonieke naam</th>
+                        <th>Actie</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for component in component_inventory.unmatched_a %}
+                        <tr data-quick-map-row data-source-a="{{ component.component }}">
+                          <td>
+                            <strong>{{ component.component }}</strong>
+                            {% if component.code %}<br><small>Code {{ component.code }}</small>{% endif %}
+                          </td>
+                          <td>{{ component.count }}</td>
+                          <td>
+                            <select name="source_b" required>
+                              <option value="">Kies component B</option>
+                              {% for option in component_inventory.all_options_b %}
+                                <option
+                                  value="{{ option.component }}"
+                                  {% if option.status != 'Geen match' %}data-all-only hidden{% endif %}
+                                >
+                                  {{ option.component }}{% if option.status != 'Geen match' %} ({{ option.status }}){% endif %}
+                                </option>
+                              {% endfor %}
+                            </select>
+                          </td>
+                          <td>
+                            <input name="canonical" value="{{ component.canonical_suggestion }}" placeholder="Canonieke naam">
+                          </td>
+                          <td>
+                            <button type="button" class="small-action" data-quick-map>Koppel</button>
+                            <span class="save-state" data-quick-map-state></span>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="empty-state compact-empty">
+                  <strong>Geen ongematchte componenten in document A.</strong>
+                  <p>Er zijn geen componenten uit document A die direct gekoppeld moeten worden.</p>
+                </div>
+              {% endif %}
+
+              {% if component_inventory.unmatched_b %}
+                <h3 class="subsection-title">Nog zonder A-koppeling in document B</h3>
+                <div class="compact-table-wrap">
+                  <table class="compact-table mapping-table">
+                    <thead>
+                      <tr>
+                        <th>Component B</th>
+                        <th>Code</th>
+                        <th>Aantal</th>
+                        <th>Totaal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for component in component_inventory.unmatched_b %}
+                        <tr>
+                          <td>{{ component.component }}</td>
+                          <td>{{ component.code or '-' }}</td>
+                          <td>{{ component.count }}</td>
+                          <td>{{ component.total }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endif %}
+            </section>
+
+            <section class="mapping-panel">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h2>Componentmapping leren</h2>
+                  <p>Koppel componentnamen die hetzelfde betekenen. De mapping wordt gebruikt bij volgende vergelijkingen.</p>
+                </div>
+              </div>
+              <form class="alias-form mapping-form" data-alias-form>
+                <label>
+                  <span>Component A</span>
+                  <input list="component-options-a" name="source_a" placeholder="Component in document A" required>
+                </label>
+                <label>
+                  <span>Component B</span>
+                  <input list="component-options-b" name="source_b" placeholder="Component in document B" required>
+                </label>
+                <label>
+                  <span>Canonieke naam</span>
+                  <input list="component-options-canonical" name="canonical" placeholder="Bijv. Vakantiegeld">
+                </label>
+                <div class="mapping-form-actions">
+                  <button type="submit">Onthoud mapping</button>
+                  <span class="save-state" data-alias-state></span>
+                </div>
+              </form>
+              <datalist id="component-options-a">
+                {% for option in component_options.a %}
+                  <option value="{{ option }}"></option>
+                {% endfor %}
+              </datalist>
+              <datalist id="component-options-b">
+                {% for option in component_options.b %}
+                  <option value="{{ option }}"></option>
+                {% endfor %}
+              </datalist>
+              <datalist id="component-options-canonical">
+                {% for option in component_options.canonical %}
+                  <option value="{{ option }}"></option>
+                {% endfor %}
+              </datalist>
+            </section>
+
+            <section class="mapping-panel">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h2>Alle gevonden componenten</h2>
+                  <p>Overzicht per document met matchstatus, aantallen en totaalbedragen.</p>
+                </div>
+              </div>
+              <div class="component-inventory-grid">
+                <div>
+                  <h3>Document A</h3>
+                  <div class="compact-table-wrap">
+                    <table class="compact-table mapping-table">
+                      <thead>
+                        <tr>
+                          <th>Status</th>
+                          <th>Component</th>
+                          <th>Code</th>
+                          <th>Aantal</th>
+                          <th>Totaal</th>
+                          <th>Tegenhanger / canoniek</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for component in component_inventory.document_a %}
+                          <tr>
+                            <td><span class="inventory-status status-{{ component.status|lower|replace(' ', '-') }}">{{ component.status }}</span></td>
+                            <td>{{ component.component }}</td>
+                            <td>{{ component.code or '-' }}</td>
+                            <td>{{ component.count }}</td>
+                            <td>{{ component.total }}</td>
+                            <td>{{ component.counterpart }}<br><small>{{ component.canonical }}</small></td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3>Document B</h3>
+                  <div class="compact-table-wrap">
+                    <table class="compact-table mapping-table">
+                      <thead>
+                        <tr>
+                          <th>Status</th>
+                          <th>Component</th>
+                          <th>Code</th>
+                          <th>Aantal</th>
+                          <th>Totaal</th>
+                          <th>Tegenhanger / canoniek</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for component in component_inventory.document_b %}
+                          <tr>
+                            <td><span class="inventory-status status-{{ component.status|lower|replace(' ', '-') }}">{{ component.status }}</span></td>
+                            <td>{{ component.component }}</td>
+                            <td>{{ component.code or '-' }}</td>
+                            <td>{{ component.count }}</td>
+                            <td>{{ component.total }}</td>
+                            <td>{{ component.counterpart }}<br><small>{{ component.canonical }}</small></td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="mapping-panel">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h2>Suggesties uit deze vergelijking</h2>
+                  <p>Combinaties van componenten die bij dezelfde medewerker alleen in A en alleen in B staan.</p>
+                </div>
+              </div>
+              {% if mapping_candidates %}
+                <div class="compact-table-wrap">
+                  <table class="compact-table mapping-table">
+                    <thead>
+                      <tr>
+                        <th>Medewerker</th>
+                        <th>Component A</th>
+                        <th>Component B</th>
+                        <th>Actie</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for candidate in mapping_candidates %}
+                        <tr>
+                          <td>{{ candidate.employee_name or '-' }}{% if candidate.employee_code %}<br><small>Code {{ candidate.employee_code }}</small>{% endif %}</td>
+                          <td>{{ candidate.source_a }}</td>
+                          <td>{{ candidate.source_b }}</td>
+                          <td>
+                            <button
+                              type="button"
+                              class="small-action"
+                              data-use-mapping
+                              data-source-a="{{ candidate.source_a }}"
+                              data-source-b="{{ candidate.source_b }}"
+                              data-canonical="{{ candidate.canonical }}"
+                            >
+                              Gebruik als mapping
+                            </button>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="empty-state compact-empty">
+                  <strong>Geen mapping-suggesties.</strong>
+                  <p>Er zijn geen gekoppelde alleen-in-A en alleen-in-B componenten gevonden.</p>
+                </div>
+              {% endif %}
+            </section>
+
+            <section class="mapping-panel">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h2>Geleerde mappings</h2>
+                  <p>Verwijder een mapping als die toekomstige vergelijkingen verkeerd stuurt.</p>
+                </div>
+              </div>
+              <div class="compact-table-wrap">
+                <table class="compact-table mapping-table">
+                  <thead>
+                    <tr>
+                      <th>Canonieke naam</th>
+                      <th>Component A</th>
+                      <th>Component B</th>
+                      <th>Laatst gewijzigd</th>
+                      <th>Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody data-alias-table>
+                    {% for alias in learned_aliases %}
+                      <tr data-alias-id="{{ alias.id }}">
+                        <td>{{ alias.canonical }}</td>
+                        <td>{{ alias.source_a }}</td>
+                        <td>{{ alias.source_b }}</td>
+                        <td>{{ alias.updated_at }}</td>
+                        <td><button type="button" class="small-action danger-action" data-delete-alias="{{ alias.id }}">Verwijderen</button></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                <div class="empty-state compact-empty {% if learned_aliases %}is-hidden{% endif %}" data-alias-empty>
+                  <strong>Nog geen geleerde mappings.</strong>
+                  <p>Voeg hierboven een mapping toe om deze lijst te vullen.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <div class="actions secondary">
+          <a href="{{ url_for('index') }}">Nieuwe vergelijking</a>
+        </div>
+
+        {% if result.warnings %}
+          <section class="warnings-section">
+            <h2>Waarschuwingen</h2>
+            <ul class="warnings">
+              {% for warning in result.warnings[:12] %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
+      </section>
+    </main>
+
+    <script>
+      const projectId = {{ project_id|tojson }};
+
+      function setState(element, text, ok) {
+        element.textContent = text;
+        element.classList.toggle("is-ok", Boolean(ok));
+      }
+
+      function activateTab(button) {
+        document.querySelectorAll("[data-tab-target]").forEach((tab) => {
+          const active = tab === button;
+          tab.classList.toggle("is-active", active);
+          tab.setAttribute("aria-selected", active ? "true" : "false");
+          tab.setAttribute("tabindex", active ? "0" : "-1");
+          const panel = document.getElementById(tab.dataset.tabTarget);
+          if (panel) {
+            panel.hidden = !active;
+          }
+        });
+      }
+
+      document.querySelectorAll("[data-tab-target]").forEach((tab) => {
+        tab.addEventListener("click", () => activateTab(tab));
+        tab.addEventListener("keydown", (event) => {
+          const tabs = Array.from(document.querySelectorAll("[data-tab-target]"));
+          const index = tabs.indexOf(tab);
+          let next = null;
+          if (event.key === "ArrowRight") {
+            next = tabs[(index + 1) % tabs.length];
+          } else if (event.key === "ArrowLeft") {
+            next = tabs[(index - 1 + tabs.length) % tabs.length];
+          }
+          if (next) {
+            event.preventDefault();
+            activateTab(next);
+            next.focus();
+          }
+        });
+      });
+
+      async function saveReview(row) {
+        const state = row.querySelector("[data-save-state]");
+        setState(state, "Opslaan...", false);
+        const status = row.querySelector("[name='status']").value;
+        const payload = {
+          status: status,
+          export_issue: status === "exporteren als issue",
+          note: row.querySelector("[name='note']").value
+        };
+        const response = await fetch(`/api/projects/${projectId}/review/${row.dataset.deviationId}`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          setState(state, "Niet opgeslagen", false);
+          return;
+        }
+        setState(state, "Opgeslagen", true);
+      }
+
+      document.querySelectorAll("[data-review-row]").forEach((row) => {
+        let timer = null;
+        const schedule = () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => saveReview(row), 250);
+        };
+        row.querySelectorAll("[data-status-value]").forEach((button) => {
+          button.addEventListener("click", () => {
+            row.querySelector("[name='status']").value = button.dataset.statusValue;
+            row.querySelectorAll("[data-status-value]").forEach((item) => {
+              const active = item === button;
+              item.classList.toggle("is-active", active);
+              item.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            schedule();
+          });
+        });
+        row.querySelector("[name='note']").addEventListener("input", schedule);
+      });
+
+      const aliasForm = document.querySelector("[data-alias-form]");
+      const aliasTable = document.querySelector("[data-alias-table]");
+      const aliasEmpty = document.querySelector("[data-alias-empty]");
+
+      document.querySelectorAll("[data-show-all-components]").forEach((toggle) => {
+        const updateOptions = () => {
+          document.querySelectorAll("option[data-all-only]").forEach((option) => {
+            option.hidden = !toggle.checked;
+          });
+        };
+        toggle.addEventListener("change", updateOptions);
+        updateOptions();
+      });
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function bindDeleteAlias(button) {
+        button.addEventListener("click", async () => {
+          const aliasId = button.dataset.deleteAlias;
+          button.disabled = true;
+          const response = await fetch(`/api/component-aliases/${aliasId}`, {method: "DELETE"});
+          if (!response.ok) {
+            button.disabled = false;
+            return;
+          }
+          button.closest("tr").remove();
+          if (aliasTable && aliasEmpty && !aliasTable.querySelector("tr")) {
+            aliasEmpty.classList.remove("is-hidden");
+          }
+        });
+      }
+
+      function upsertAliasRow(alias) {
+        if (!aliasTable || !alias || !alias.id) {
+          return;
+        }
+        const existing = aliasTable.querySelector(`[data-alias-id="${alias.id}"]`);
+        if (existing) {
+          existing.remove();
+        }
+        const row = document.createElement("tr");
+        row.dataset.aliasId = alias.id;
+        row.innerHTML = `
+          <td>${escapeHtml(alias.canonical)}</td>
+          <td>${escapeHtml(alias.source_a)}</td>
+          <td>${escapeHtml(alias.source_b)}</td>
+          <td>${escapeHtml(alias.updated_at)}</td>
+          <td><button type="button" class="small-action danger-action" data-delete-alias="${escapeHtml(alias.id)}">Verwijderen</button></td>
+        `;
+        aliasTable.prepend(row);
+        bindDeleteAlias(row.querySelector("[data-delete-alias]"));
+        if (aliasEmpty) {
+          aliasEmpty.classList.add("is-hidden");
+        }
+      }
+
+      document.querySelectorAll("[data-use-mapping]").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (!aliasForm) {
+            return;
+          }
+          aliasForm.elements.source_a.value = button.dataset.sourceA || "";
+          aliasForm.elements.source_b.value = button.dataset.sourceB || "";
+          aliasForm.elements.canonical.value = button.dataset.canonical || "";
+          aliasForm.elements.canonical.focus();
+        });
+      });
+
+      document.querySelectorAll("[data-delete-alias]").forEach(bindDeleteAlias);
+
+      async function saveProjectMapping(payload, state, button) {
+        if (button) {
+          button.disabled = true;
+        }
+        setState(state, "Opslaan...", false);
+        const response = await fetch(`/api/projects/${projectId}/component-aliases`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          setState(state, "Niet opgeslagen", false);
+          if (button) {
+            button.disabled = false;
+          }
+          return;
+        }
+        const data = await response.json();
+        if (data.reload) {
+          setState(state, "Opgeslagen, opnieuw laden...", true);
+          window.location.reload();
+          return;
+        }
+        upsertAliasRow(data.alias);
+        setState(state, "Mapping opgeslagen", true);
+        if (button) {
+          button.disabled = false;
+        }
+      }
+
+      document.querySelectorAll("[data-quick-map]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const row = button.closest("[data-quick-map-row]");
+          const state = row.querySelector("[data-quick-map-state]");
+          const sourceB = row.querySelector("[name='source_b']").value;
+          if (!sourceB) {
+            setState(state, "Kies component B", false);
+            return;
+          }
+          await saveProjectMapping(
+            {
+              source_a: row.dataset.sourceA || "",
+              source_b: sourceB,
+              canonical: row.querySelector("[name='canonical']").value
+            },
+            state,
+            button
+          );
+        });
+      });
+
+      if (aliasForm) {
+        aliasForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const state = document.querySelector("[data-alias-state]");
+          const payload = {
+            source_a: aliasForm.elements.source_a.value,
+            source_b: aliasForm.elements.source_b.value,
+            canonical: aliasForm.elements.canonical.value
+          };
+          await saveProjectMapping(payload, state, aliasForm.querySelector("button[type='submit']"));
+        });
+      }
+    </script>
+  </body>
+</html>

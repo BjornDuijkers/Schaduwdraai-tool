@@ -11,9 +11,12 @@ De app blijft lokaal draaien. PDF's worden niet naar een cloudservice gestuurd.
 - Gebruikt RapidOCR als lokale OCR-fallback voor afbeelding-PDF's zonder tekstlaag.
 - Probeert daarnaast optioneel OCRmyPDF te gebruiken als die lokaal beschikbaar is.
 - Splitst loonstroken per medewerker.
-- Matcht medewerkers op naam en geboortedatum.
+- Matcht medewerkers op medewerkercode plus geboortedatum, met naam plus geboortedatum als fallback.
 - Vergelijkt looncomponenten en bedragen.
-- Exporteert een Excelrapport met overeenkomsten, verschillen, ontbrekende loonstroken en extractiewaarschuwingen.
+- Herkent periode, payrollprovider en scenario waar mogelijk.
+- Laat verschillen interactief reviewen met status, opmerking en issue-export.
+- Onthoudt geleerde componentmappings lokaal in SQLite voor volgende vergelijkingen.
+- Exporteert een Excelrapport met overeenkomsten, verschillen, reviewstatussen, issues, ontbrekende loonstroken en extractiewaarschuwingen.
 
 ## Installatie
 
@@ -58,3 +61,13 @@ document_a,document_b,canonical
 ```
 
 Zonder mapping vergelijkt de app op componentcode, of anders op genormaliseerde omschrijving.
+
+## Reviewmodus en leerfunctie
+
+Na een vergelijking kun je via **Review verschillen** elke afwijking markeren als `akkoord`, `uitzoeken`, `foutieve match` of `exporteren als issue`. Opmerkingen en issue-markeringen worden lokaal opgeslagen in:
+
+```text
+instance/schaduwdraai.db
+```
+
+In hetzelfde scherm kun je componentnamen aan elkaar koppelen. Bijvoorbeeld: `Vakantiegeld` en `Reservering vakantietoeslag` met canonieke naam `Vakantiegeld`. Die mapping wordt automatisch gebruikt bij volgende vergelijkingen.

@@ -22,7 +22,10 @@
             <h1>Resultaat</h1>
             <p>{{ doc_a.source_name }} vergeleken met {{ doc_b.source_name }}</p>
           </div>
-          <a class="button" href="{{ url_for('download', project_id=project_id, filename=report_name) }}">Download Excelrapport</a>
+          <div class="button-row">
+            <a class="button secondary-button" href="{{ url_for('review', project_id=project_id) }}">Review verschillen</a>
+            <a class="button" href="{{ url_for('download', project_id=project_id, filename=report_name) }}">Download Excelrapport</a>
+          </div>
         </div>
       </section>
 
@@ -40,6 +43,12 @@
             <dl>
               <dt>A</dt><dd>{{ doc_a.source_name }} - {{ result.summary.loonstroken_document_a }} loonstroken, {{ result.summary.componenten_document_a }} componenten</dd>
               <dt>B</dt><dd>{{ doc_b.source_name }} - {{ result.summary.loonstroken_document_b }} loonstroken, {{ result.summary.componenten_document_b }} componenten</dd>
+              <dt>Periode A</dt><dd>{{ doc_a.normalized_period or doc_a.period or '-' }}</dd>
+              <dt>Periode B</dt><dd>{{ doc_b.normalized_period or doc_b.period or '-' }}</dd>
+              <dt>Provider A</dt><dd>{{ doc_a.provider or '-' }}</dd>
+              <dt>Provider B</dt><dd>{{ doc_b.provider or '-' }}</dd>
+              <dt>Scenario A</dt><dd>{{ doc_a.scenario or '-' }}</dd>
+              <dt>Scenario B</dt><dd>{{ doc_b.scenario or '-' }}</dd>
             </dl>
           </section>
           <section>
@@ -50,17 +59,6 @@
             </dl>
           </section>
         </div>
-
-        {% if result.warnings %}
-          <section>
-            <h2>Waarschuwingen</h2>
-            <ul class="warnings">
-              {% for warning in result.warnings[:12] %}
-                <li>{{ warning }}</li>
-              {% endfor %}
-            </ul>
-          </section>
-        {% endif %}
 
         <section class="deviation-section">
           <div class="section-heading">
@@ -77,7 +75,7 @@
                   <summary>
                     <span class="summary-person">
                       <strong>{{ item.employee_name }}</strong>
-                      <small>{{ item.birth_date }}</small>
+                      <small>{{ item.birth_date }}{% if item.employee_code %} - code {{ item.employee_code }}{% endif %}</small>
                     </span>
                     <span class="summary-issue">{{ item.deviation_summary }}</span>
                     <span class="summary-count">{{ item.deviation_count }} afwijking{% if item.deviation_count != 1 %}en{% endif %}</span>
@@ -87,6 +85,7 @@
                   <div class="deviation-detail">
                     <div class="detail-meta">
                       <span>Status: {{ item.status }}</span>
+                      <span>Code: {{ item.employee_code or '-' }}</span>
                       <span>Pagina's A: {{ item.pages_a or '-' }}</span>
                       <span>Pagina's B: {{ item.pages_b or '-' }}</span>
                       <span>{{ item.component_count }} componenten</span>
@@ -170,6 +169,17 @@
         <div class="actions secondary">
           <a href="{{ url_for('index') }}">Nieuwe vergelijking</a>
         </div>
+
+        {% if result.warnings %}
+          <section class="warnings-section">
+            <h2>Waarschuwingen</h2>
+            <ul class="warnings">
+              {% for warning in result.warnings[:12] %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
       </section>
     </main>
   </body>

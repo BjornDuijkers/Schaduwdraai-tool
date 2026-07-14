@@ -44,6 +44,7 @@ class Payslip:
     source_name: str
     employee_name: str | None
     birth_date: str | None
+    employee_code: str | None
     period: str | None
     page_numbers: list[int]
     components: list[Component]
@@ -52,7 +53,7 @@ class Payslip:
 
     @property
     def identity_complete(self) -> bool:
-        return bool(self.employee_name and self.birth_date)
+        return bool(self.birth_date and (self.employee_name or self.employee_code))
 
 
 @dataclass
@@ -61,6 +62,10 @@ class ParsedDocument:
     source_name: str
     payslips: list[Payslip]
     warnings: list[str] = field(default_factory=list)
+    period: str | None = None
+    normalized_period: str | None = None
+    provider: str | None = None
+    scenario: str | None = None
 
 
 @dataclass
@@ -75,6 +80,7 @@ class EmployeeComparison:
     status: str
     employee_name: str | None
     birth_date: str | None
+    employee_code: str | None
     source_a_pages: str
     source_b_pages: str
     match_note: str = ""
@@ -84,6 +90,8 @@ class EmployeeComparison:
 class ComponentComparison:
     employee_name: str | None
     birth_date: str | None
+    employee_code: str | None
+    deviation_id: str
     canonical_component: str
     component_a: str | None
     amount_a: Decimal | None
@@ -93,6 +101,9 @@ class ComponentComparison:
     status: str
     pages_a: str
     pages_b: str
+    review_status: str = "open"
+    review_note: str = ""
+    export_issue: bool = False
 
 
 @dataclass

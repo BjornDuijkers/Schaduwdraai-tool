@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from collections import defaultdict
+import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -93,6 +93,7 @@ def compare_documents(
     warnings = list(doc_a.warnings) + list(doc_b.warnings)
     warnings.extend(_payslip_warnings(doc_a))
     warnings.extend(_payslip_warnings(doc_b))
+    warnings.extend(_context_warnings(doc_a, doc_b))
 
     matched_pairs, employee_rows, unmatched_b = _match_payslips(doc_a.payslips, doc_b.payslips)
     component_rows: list[ComponentComparison] = []
@@ -116,11 +117,14 @@ def compare_documents(
                 status="ALLEEN_IN_B",
                 employee_name=payslip_b.employee_name,
                 birth_date=payslip_b.birth_date,
+                employee_code=payslip_b.employee_code,
                 source_a_pages="",
                 source_b_pages=_pages(payslip_b),
                 match_note="Niet gevonden in document A.",
             )
         )
+
+    warnings.extend(_unmatched_employee_warnings(employee_rows))
 
     summary = {
         "loonstroken_document_a": len(doc_a.payslips),
@@ -153,20 +157,20 @@ def _match_payslips(
     employee_rows: list[EmployeeComparison] = []
     remaining_b = list(payslips_b)
 
-    exact_b: dict[str, list[Payslip]] = defaultdict(list)
-    for payslip in payslips_b:
-        key = _employee_key(payslip)
-        if key:
-            exact_b[key].append(payslip)
-
     for payslip_a in payslips_a:
-        key = _employee_key(payslip_a)
         match: Payslip | None = None
         note = ""
 
-        if key and exact_b.get(key):
-            match = exact_b[key].pop(0)
-        elif payslip_a.birth_date:
+        match = _find_exact_code_birthdate_match(payslip_a, remaining_b)
+        if match:
+            note = _name_conflict_note(payslip_a, match)
+
+        if not match and _employee_key(payslip_a):
+            match = _find_exact_name_birthdate_match(payslip_a, remaining_b)
+            if match:
+                note = _code_conflict_note(payslip_a, match)
+
+        if not match and payslip_a.birth_date:
             match, score = _find_fuzzy_birthdate_match(payslip_a, remaining_b)
             if match:
                 note = (
@@ -174,6 +178,9 @@ def _match_payslips(
                     f"en {match.employee_name} op geboortedatum {payslip_a.birth_date} "
                     f"(score {score:.2f})."
                 )
+                code_note = _code_conflict_note(payslip_a, match)
+                if code_note:
+                    note = f"{note} {code_note}"
 
         if match and match in remaining_b:
             remaining_b.remove(match)
@@ -183,6 +190,7 @@ def _match_payslips(
                     status="MATCH",
                     employee_name=payslip_a.employee_name or match.employee_name,
                     birth_date=payslip_a.birth_date or match.birth_date,
+                    employee_code=payslip_a.employee_code or match.employee_code,
                     source_a_pages=_pages(payslip_a),
                     source_b_pages=_pages(match),
                     match_note=note,
@@ -195,6 +203,7 @@ def _match_payslips(
                 status="ALLEEN_IN_A",
                 employee_name=payslip_a.employee_name,
                 birth_date=payslip_a.birth_date,
+                employee_code=payslip_a.employee_code,
                 source_a_pages=_pages(payslip_a),
                 source_b_pages="",
                 match_note="Niet gevonden in document B.",
@@ -236,6 +245,15 @@ def _compare_components(
             ComponentComparison(
                 employee_name=payslip_a.employee_name or payslip_b.employee_name,
                 birth_date=payslip_a.birth_date or payslip_b.birth_date,
+                employee_code=payslip_a.employee_code or payslip_b.employee_code,
+                deviation_id=_deviation_id(
+                    payslip_a,
+                    payslip_b,
+                    key=key,
+                    status=status,
+                    amount_a=amount_a,
+                    amount_b=amount_b,
+                ),
                 canonical_component=_display_component_key(key, aggregate_a, aggregate_b),
                 component_a=aggregate_a.label if aggregate_a else None,
                 amount_a=amount_a,
@@ -359,6 +377,60 @@ def _employee_key(payslip: Payslip) -> str | None:
     return f"{normalize_key(payslip.employee_name)}|{payslip.birth_date}"
 
 
+def _employee_code_key(payslip: Payslip) -> str | None:
+    if not payslip.employee_code or not payslip.birth_date:
+        return None
+    return f"{normalize_key(payslip.employee_code)}|{payslip.birth_date}"
+
+
+def _find_exact_code_birthdate_match(
+    payslip_a: Payslip,
+    candidates: list[Payslip],
+) -> Payslip | None:
+    key = _employee_code_key(payslip_a)
+    if not key:
+        return None
+    for candidate in candidates:
+        if _employee_code_key(candidate) == key:
+            return candidate
+    return None
+
+
+def _find_exact_name_birthdate_match(
+    payslip_a: Payslip,
+    candidates: list[Payslip],
+) -> Payslip | None:
+    key = _employee_key(payslip_a)
+    if not key:
+        return None
+    for candidate in candidates:
+        if _employee_key(candidate) == key:
+            return candidate
+    return None
+
+
+def _code_conflict_note(payslip_a: Payslip, payslip_b: Payslip) -> str:
+    if not payslip_a.employee_code or not payslip_b.employee_code:
+        return ""
+    if normalize_key(payslip_a.employee_code) == normalize_key(payslip_b.employee_code):
+        return ""
+    return (
+        "Naam en geboortedatum matchen, maar medewerker codes verschillen: "
+        f"A={payslip_a.employee_code}, B={payslip_b.employee_code}."
+    )
+
+
+def _name_conflict_note(payslip_a: Payslip, payslip_b: Payslip) -> str:
+    if not payslip_a.employee_name or not payslip_b.employee_name:
+        return ""
+    if normalize_key(payslip_a.employee_name) == normalize_key(payslip_b.employee_name):
+        return ""
+    return (
+        "Medewerker code en geboortedatum matchen, maar namen verschillen: "
+        f"A={payslip_a.employee_name}, B={payslip_b.employee_name}."
+    )
+
+
 def _find_fuzzy_birthdate_match(
     payslip_a: Payslip, candidates: list[Payslip]
 ) -> tuple[Payslip | None, float]:
@@ -383,6 +455,88 @@ def _find_fuzzy_birthdate_match(
 
 def _pages(payslip: Payslip) -> str:
     return ", ".join(str(page) for page in payslip.page_numbers)
+
+
+def _deviation_id(
+    payslip_a: Payslip,
+    payslip_b: Payslip,
+    *,
+    key: str,
+    status: str,
+    amount_a: Decimal | None,
+    amount_b: Decimal | None,
+) -> str:
+    parts = [
+        payslip_a.employee_code or payslip_b.employee_code or "",
+        payslip_a.employee_name or payslip_b.employee_name or "",
+        payslip_a.birth_date or payslip_b.birth_date or "",
+        _pages(payslip_a),
+        _pages(payslip_b),
+        key,
+        status,
+        str(amount_a or ""),
+        str(amount_b or ""),
+    ]
+    digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def _context_warnings(doc_a: ParsedDocument, doc_b: ParsedDocument) -> list[str]:
+    warnings: list[str] = []
+    if doc_a.normalized_period and doc_b.normalized_period and doc_a.normalized_period != doc_b.normalized_period:
+        warnings.append(
+            "Verschillende periodes gedetecteerd: "
+            f"document A={doc_a.normalized_period}, document B={doc_b.normalized_period}."
+        )
+    if doc_a.provider and doc_b.provider and doc_a.provider != doc_b.provider:
+        warnings.append(
+            f"Providerwissel gedetecteerd: document A={doc_a.provider}, document B={doc_b.provider}."
+        )
+    if doc_a.scenario and doc_b.scenario and doc_a.scenario != doc_b.scenario:
+        warnings.append(
+            f"Verschillende scenario's gedetecteerd: document A={doc_a.scenario}, document B={doc_b.scenario}."
+        )
+    return warnings
+
+
+def _unmatched_employee_warnings(employee_rows: list[EmployeeComparison]) -> list[str]:
+    warnings: list[str] = []
+    for row in employee_rows:
+        if row.status == "ALLEEN_IN_A":
+            warnings.append(
+                _unmatched_warning(
+                    row,
+                    source="document A",
+                    missing_source="document B",
+                    pages=row.source_a_pages,
+                )
+            )
+        elif row.status == "ALLEEN_IN_B":
+            warnings.append(
+                _unmatched_warning(
+                    row,
+                    source="document B",
+                    missing_source="document A",
+                    pages=row.source_b_pages,
+                )
+            )
+    return warnings
+
+
+def _unmatched_warning(
+    row: EmployeeComparison,
+    *,
+    source: str,
+    missing_source: str,
+    pages: str,
+) -> str:
+    identity = row.employee_name or "onbekende medewerker"
+    if row.birth_date:
+        identity = f"{identity} ({row.birth_date})"
+    if row.employee_code:
+        identity = f"{identity}, code {row.employee_code}"
+    page_text = f", pagina's {pages}" if pages else ""
+    return f"Geen match gevonden voor {identity} uit {source}{page_text}; niet gevonden in {missing_source}."
 
 
 def _payslip_warnings(document: ParsedDocument) -> list[str]:

@@ -17,6 +17,14 @@ DOB_RE = re.compile(
     r"\b(?:geboortedatum|geboorte\s*datum|geb\.?\s*datum|geb\.?\s*dat\.?|geboren)\b\s*[:\-]?\s*(?P<date>\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})",
     re.IGNORECASE,
 )
+EMPLOYEE_CODE_RE = re.compile(
+    r"\b(?:medewerker\s*(?:nummer|nr\.?|code)|personeels\s*(?:nummer|nr\.?)|pers\.?\s*nr\.?|werknemer\s*(?:nummer|nr\.?|code)|employee\s*(?:no\.?|number|id|code)|payroll\s*id)\b\s*[:\-]?\s*(?P<value>[A-Za-z0-9][A-Za-z0-9 ._/-]{1,35})?",
+    re.IGNORECASE,
+)
+GENERIC_CODE_RE = re.compile(
+    r"^\s*code\s*[:\-]\s*(?P<value>[A-Za-z0-9][A-Za-z0-9 ._/-]{1,35})",
+    re.IGNORECASE,
+)
 DATE_RE = re.compile(r"\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b")
 PERIOD_RE = re.compile(
     r"\b(?:periode|loonperiode|tijdvak|maand)\b\s*[:\-]?\s*(?P<period>[A-Za-z0-9 /\-.]{3,30})",
@@ -57,10 +65,24 @@ MONTH_NAMES = (
     "november",
     "december",
 )
+MONTH_TO_NUMBER = {month: index for index, month in enumerate(MONTH_NAMES, start=1)}
 MONTH_RE = re.compile(r"\b(?:" + "|".join(MONTH_NAMES) + r")\b", re.IGNORECASE)
 MONTH_YEAR_RE = re.compile(
     r"\b(?:" + "|".join(MONTH_NAMES) + r")\s+\d{4}\b",
     re.IGNORECASE,
+)
+PROVIDER_MARKERS = (
+    ("AFAS", ("afas", "profit")),
+    ("Loket", ("loket",)),
+    ("Nmbrs", ("nmbrs",)),
+    ("ADP", ("adp",)),
+    ("Visma", ("visma", "raet")),
+    ("SD Worx", ("sd worx", "sdworx")),
+)
+SCENARIO_MARKERS = (
+    ("schaduwdraai", ("schaduwdraai", "shadow run")),
+    ("proefrun", ("proef", "concept", "test", "testrun")),
+    ("productie", ("productie", "definitief", "final")),
 )
 SECTION_STOP_KEYS = {
     "medewerker holding",
@@ -104,6 +126,7 @@ def parse_document(extraction: ExtractionResult, *, source: str) -> ParsedDocume
     warnings = list(extraction.warnings)
     segments = split_payslip_segments(extraction.pages)
     payslips: list[Payslip] = []
+    document_text = "\n".join(page.text for page in extraction.pages)
 
     for segment in segments:
         page_numbers = [page.page_number for page in segment]
@@ -111,6 +134,7 @@ def parse_document(extraction: ExtractionResult, *, source: str) -> ParsedDocume
         payslip_warnings: list[str] = []
         name = extract_name_from_pages(segment, raw_text)
         birth_date = extract_birth_date_from_pages(segment, raw_text)
+        employee_code = extract_employee_code_from_pages(segment, raw_text)
         period = extract_period_from_pages(segment, raw_text)
         components = extract_components_from_pages(segment, raw_text)
 
@@ -127,6 +151,7 @@ def parse_document(extraction: ExtractionResult, *, source: str) -> ParsedDocume
                 source_name=extraction.source_name,
                 employee_name=name,
                 birth_date=birth_date,
+                employee_code=employee_code,
                 period=period,
                 page_numbers=page_numbers,
                 components=components,
@@ -147,6 +172,10 @@ def parse_document(extraction: ExtractionResult, *, source: str) -> ParsedDocume
         source_name=extraction.source_name,
         payslips=payslips,
         warnings=warnings,
+        period=_dominant_value([payslip.period for payslip in payslips]),
+        normalized_period=_dominant_value([normalize_period(payslip.period) for payslip in payslips]),
+        provider=detect_provider(extraction.source_name, document_text),
+        scenario=detect_scenario(extraction.source_name, document_text),
     )
 
 
@@ -274,6 +303,39 @@ def extract_birth_date(text: str) -> str | None:
     return None
 
 
+def extract_employee_code_from_pages(pages: list[PageText], text: str) -> str | None:
+    employee_code = extract_employee_code(text)
+    if employee_code:
+        return employee_code
+
+    for page in pages:
+        lines = _visual_lines(page.words)
+        for index, line in enumerate(lines):
+            line_text = _line_text(line)
+            employee_code = _employee_code_from_line(line_text)
+            if employee_code:
+                return employee_code
+            if EMPLOYEE_CODE_RE.search(line_text) and index + 1 < len(lines):
+                employee_code = _clean_employee_code(_line_text(lines[index + 1]))
+                if employee_code:
+                    return employee_code
+    return None
+
+
+def extract_employee_code(text: str) -> str | None:
+    lines = [clean_line(line) for line in text.splitlines() if clean_line(line)]
+    for index, line in enumerate(lines):
+        employee_code = _employee_code_from_line(line)
+        if employee_code:
+            return employee_code
+
+        if EMPLOYEE_CODE_RE.search(line) and index + 1 < len(lines):
+            employee_code = _clean_employee_code(lines[index + 1])
+            if employee_code:
+                return employee_code
+    return None
+
+
 def extract_period_from_pages(pages: list[PageText], text: str) -> str | None:
     period = extract_period(text)
     if period:
@@ -324,6 +386,48 @@ def extract_period(text: str) -> str | None:
             value = STOP_LABEL_RE.split(match.group("period"))[0].strip(" :-")
             if value:
                 return value
+    return None
+
+
+def normalize_period(period: str | None) -> str | None:
+    if not period:
+        return None
+    value = clean_line(period)
+
+    year_month = re.search(r"\b(?P<year>20\d{2}|19\d{2})[-/.](?P<month>\d{1,2})\b", value)
+    if year_month:
+        month = int(year_month.group("month"))
+        if 1 <= month <= 12:
+            return f"{year_month.group('year')}-{month:02d}"
+
+    month_year = re.search(r"\b(?P<month>\d{1,2})[-/.](?P<year>20\d{2}|19\d{2})\b", value)
+    if month_year:
+        month = int(month_year.group("month"))
+        if 1 <= month <= 12:
+            return f"{month_year.group('year')}-{month:02d}"
+
+    text_month = MONTH_RE.search(value)
+    text_year = re.search(r"\b(20\d{2}|19\d{2})\b", value)
+    if text_month and text_year:
+        month = MONTH_TO_NUMBER[text_month.group(0).lower()]
+        return f"{text_year.group(1)}-{month:02d}"
+
+    return value
+
+
+def detect_provider(source_name: str, text: str) -> str | None:
+    haystack = normalize_key(f"{source_name}\n{text}")
+    for provider, markers in PROVIDER_MARKERS:
+        if any(marker in haystack for marker in markers):
+            return provider
+    return None
+
+
+def detect_scenario(source_name: str, text: str) -> str | None:
+    haystack = normalize_key(f"{source_name}\n{text}")
+    for scenario, markers in SCENARIO_MARKERS:
+        if any(marker in haystack for marker in markers):
+            return scenario
     return None
 
 
@@ -699,6 +803,33 @@ def _date_from_text(text: str) -> str | None:
     return _normalize_date(match.group(0))
 
 
+def _employee_code_from_line(line: str) -> str | None:
+    match = EMPLOYEE_CODE_RE.search(line)
+    if match:
+        employee_code = _clean_employee_code(match.group("value") or line[match.end() :])
+        if employee_code:
+            return employee_code
+
+    match = GENERIC_CODE_RE.search(line)
+    if match:
+        return _clean_employee_code(match.group("value"))
+    return None
+
+
+def _clean_employee_code(value: str) -> str | None:
+    value = STOP_LABEL_RE.split(value)[0]
+    value = clean_line(value.strip(" :-"))
+    tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9._/-]{1,24}", value)
+    for token in tokens:
+        cleaned = token.strip(" ._/-")
+        if not cleaned or DATE_RE.fullmatch(cleaned):
+            continue
+        if not re.search(r"\d", cleaned):
+            continue
+        return cleaned
+    return None
+
+
 def _line_center(line: _VisualLine) -> float:
     if not line.words:
         return 0
@@ -886,11 +1017,23 @@ def _extract_component_code_and_label(prefix: str) -> tuple[str | None, str]:
     return code, label
 
 
+def _dominant_value(values: list[str | None]) -> str | None:
+    counts: dict[str, int] = {}
+    for value in values:
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
 def _duplicate_identity_keys(payslips: list[Payslip]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for payslip in payslips:
         if not payslip.identity_complete:
             continue
-        key = f"{normalize_key(payslip.employee_name)}|{payslip.birth_date}"
+        identity = payslip.employee_code or normalize_key(payslip.employee_name or "")
+        key = f"{identity}|{payslip.birth_date}"
         counts[key] = counts.get(key, 0) + 1
     return {key: count for key, count in counts.items() if count > 1}

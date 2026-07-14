@@ -34,6 +34,7 @@ def create_excel_report(
     _write_components(workbook.create_sheet("Componenten"), result)
     _write_warnings(workbook.create_sheet("Waarschuwingen"), result)
     _write_mapping_tips(workbook.create_sheet("Mapping tips"), result)
+    _write_issues(workbook.create_sheet("Issues"), result)
 
     for sheet in workbook.worksheets:
         _autosize(sheet)
@@ -42,10 +43,31 @@ def create_excel_report(
     return output_path
 
 
+def create_issues_report(
+    result: ComparisonResult,
+    doc_a: ParsedDocument,
+    doc_b: ParsedDocument,
+    output_path: Path,
+) -> Path:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Issues"
+    _write_issues(sheet, result)
+    _autosize(sheet)
+    workbook.save(output_path)
+    return output_path
+
+
 def _write_summary(sheet, result: ComparisonResult, doc_a: ParsedDocument, doc_b: ParsedDocument) -> None:
     rows = [
         ("Document A", doc_a.source_name),
         ("Document B", doc_b.source_name),
+        ("Periode A", doc_a.normalized_period or doc_a.period or ""),
+        ("Periode B", doc_b.normalized_period or doc_b.period or ""),
+        ("Provider A", doc_a.provider or ""),
+        ("Provider B", doc_b.provider or ""),
+        ("Scenario A", doc_a.scenario or ""),
+        ("Scenario B", doc_b.scenario or ""),
         ("Loonstroken document A", result.summary["loonstroken_document_a"]),
         ("Loonstroken document B", result.summary["loonstroken_document_b"]),
         ("Uitgelezen componenten document A", result.summary["componenten_document_a"]),
@@ -71,6 +93,7 @@ def _write_employees(sheet, result: ComparisonResult) -> None:
         "Status",
         "Naam",
         "Geboortedatum",
+        "Medewerkercode",
         "Pagina's A",
         "Pagina's B",
         "Opmerking",
@@ -82,6 +105,7 @@ def _write_employees(sheet, result: ComparisonResult) -> None:
                 row.status,
                 row.employee_name,
                 row.birth_date,
+                row.employee_code,
                 row.source_a_pages,
                 row.source_b_pages,
                 row.match_note,
@@ -92,9 +116,14 @@ def _write_employees(sheet, result: ComparisonResult) -> None:
 
 def _write_components(sheet, result: ComparisonResult) -> None:
     headers = [
+        "Afwijking ID",
         "Status",
+        "Reviewstatus",
+        "Review opmerking",
+        "Issue export",
         "Naam",
         "Geboortedatum",
+        "Medewerkercode",
         "Component",
         "Component A",
         "Bedrag A",
@@ -108,9 +137,14 @@ def _write_components(sheet, result: ComparisonResult) -> None:
     for row in result.components:
         sheet.append(
             [
+                row.deviation_id,
                 row.status,
+                row.review_status,
+                row.review_note,
+                "Ja" if row.export_issue else "Nee",
                 row.employee_name,
                 row.birth_date,
+                row.employee_code,
                 row.canonical_component,
                 row.component_a,
                 money(row.amount_a),
@@ -121,7 +155,7 @@ def _write_components(sheet, result: ComparisonResult) -> None:
                 row.pages_b,
             ]
         )
-    _style_table(sheet, status_column=1, money_columns=(6, 8, 9))
+    _style_table(sheet, status_column=2, money_columns=(11, 13, 14))
 
 
 def _write_warnings(sheet, result: ComparisonResult) -> None:
@@ -141,6 +175,51 @@ def _write_mapping_tips(sheet, result: ComparisonResult) -> None:
         elif row.status == "VERSCHIL":
             sheet.append((row.component_a, row.component_b, row.status, "Bedrag wijkt af."))
     _style_table(sheet, status_column=3)
+
+
+def _write_issues(sheet, result: ComparisonResult) -> None:
+    headers = [
+        "Afwijking ID",
+        "Reviewstatus",
+        "Opmerking",
+        "Naam",
+        "Geboortedatum",
+        "Medewerkercode",
+        "Component",
+        "Status",
+        "Component A",
+        "Bedrag A",
+        "Component B",
+        "Bedrag B",
+        "Verschil B-A",
+        "Pagina's A",
+        "Pagina's B",
+    ]
+    sheet.append(headers)
+
+    for row in result.components:
+        if not row.export_issue and row.review_status != "exporteren als issue":
+            continue
+        sheet.append(
+            [
+                row.deviation_id,
+                row.review_status,
+                row.review_note,
+                row.employee_name,
+                row.birth_date,
+                row.employee_code,
+                row.canonical_component,
+                row.status,
+                row.component_a,
+                money(row.amount_a),
+                row.component_b,
+                money(row.amount_b),
+                money(row.difference),
+                row.pages_a,
+                row.pages_b,
+            ]
+        )
+    _style_table(sheet, status_column=8, money_columns=(10, 12, 13))
 
 
 def _style_header(sheet) -> None:
