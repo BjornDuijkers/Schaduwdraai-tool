@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nieuwe schaduwdraai · Salure</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="app-page upload-page">
+    <a class="skip-link" href="#main-content">Naar de inhoud</a>
+    {% set active_page = 'upload' %}
+    {% include '_sidebar.html' %}
+    <header class="brand-bar">
+      <strong>Schaduwdraaitool</strong>
+      <p>Samen slim vooruit</p>
+    </header>
+
+    <main id="main-content" class="shell upload-main">
+      <section class="hero">
+        <p class="eyebrow">Lokale payroll vergelijking</p>
+        <h1>Nieuwe schaduwdraai</h1>
+        <p>Selecteer twee loonstrookbundels. Na de vergelijking verschijnen hun looncomponenten op de mappingpagina.</p>
+      </section>
+
+      <section class="tool-surface">
+        <div class="surface-heading">
+          <h2>Documenten vergelijken</h2>
+          <span class="security-chip">Lokaal verwerkt</span>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert">
+              {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form class="upload-form" action="{{ url_for('compare') }}" method="post" enctype="multipart/form-data">
+          <div class="grid">
+            <label class="file-field"><span>Document A</span><input type="file" name="document_a" accept="application/pdf,.pdf" required></label>
+            <label class="file-field"><span>Document B</span><input type="file" name="document_b" accept="application/pdf,.pdf" required></label>
+          </div>
+          <div class="options">
+            <label><span>Tolerantie bedrag</span><input type="text" name="tolerance" value="0.01" inputmode="decimal"></label>
+            <label><span>Componentmapping CSV</span><input type="file" name="mapping_csv" accept=".csv,text/csv"></label>
+          </div>
+          <label class="mapping-text">
+            <span>Componentmapping plakken</span>
+            <textarea name="mapping_text" rows="6" placeholder="document_a,document_b,canonical&#10;1000 Bruto salaris,SAL_BASIS,Bruto salaris"></textarea>
+          </label>
+          <details class="context-details">
+            <summary>Periode, provider of scenario handmatig aanpassen</summary>
+            <div class="context-grid">
+              <label><span>Periode A</span><input type="text" name="period_a" placeholder="bijv. 2026-01"></label>
+              <label><span>Periode B</span><input type="text" name="period_b" placeholder="bijv. 2026-02"></label>
+              <label><span>Provider A</span><input type="text" name="provider_a" placeholder="bijv. AFAS"></label>
+              <label><span>Provider B</span><input type="text" name="provider_b" placeholder="bijv. Loket"></label>
+              <label><span>Scenario A</span><input type="text" name="scenario_a" placeholder="bijv. proefrun"></label>
+              <label><span>Scenario B</span><input type="text" name="scenario_b" placeholder="bijv. productie"></label>
+            </div>
+          </details>
+          <div class="actions">
+            <button type="submit">Vergelijk documenten</button>
+            <a class="button secondary-button" href="{{ url_for('index') }}">Terug naar mapping</a>
+          </div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

@@ -6,15 +6,16 @@
     <title>Resultaat - Schaduwdraaitool</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
-  <body>
+  <body class="app-page result-page">
+    <a class="skip-link" href="#main-content">Naar de inhoud</a>
+    {% set active_page = 'mapping' %}
+    {% include '_sidebar.html' %}
     <header class="brand-bar">
-      <a class="brand-mark" href="{{ url_for('index') }}" aria-label="Schaduwdraaitool start">
-        <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
-      </a>
+      <strong>Schaduwdraaitool</strong>
       <p>Samen slim vooruit</p>
     </header>
 
-    <main class="shell wide">
+    <main id="main-content" class="shell wide">
       <section class="hero compact">
         <p class="eyebrow">Vergelijking gereed</p>
         <div class="result-header">
@@ -167,7 +168,7 @@
         </section>
 
         <div class="actions secondary">
-          <a href="{{ url_for('index') }}">Nieuwe vergelijking</a>
+          <a href="{{ url_for('upload') }}">Nieuwe vergelijking</a>
         </div>
 
         {% if result.warnings %}

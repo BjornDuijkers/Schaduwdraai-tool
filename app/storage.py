@@ -161,6 +161,32 @@ def load_project(
     return doc_a, doc_b, result
 
 
+def list_projects(*, limit: int = 50, path: Path | None = None) -> list[dict[str, Any]]:
+    target = init_db(path)
+    safe_limit = max(1, min(int(limit), 200))
+    with closing(sqlite3.connect(target)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT project_id, document_a, document_b, created_at, updated_at
+            FROM projects
+            ORDER BY updated_at DESC, created_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+    return [
+        {
+            "project_id": row["project_id"],
+            "document_a": row["document_a"],
+            "document_b": row["document_b"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
 def load_project_settings(project_id: str, *, path: Path | None = None) -> dict[str, Any] | None:
     target = init_db(path)
     with closing(sqlite3.connect(target)) as connection:

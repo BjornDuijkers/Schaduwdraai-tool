@@ -1,105 +1,95 @@
 <!doctype html>
 <html lang="nl">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Schaduwdraaitool</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Looncomponent mapping · Salure</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='mapping.css') }}" />
+    <script type="module" src="{{ url_for('static', filename='mapping.js') }}"></script>
   </head>
-  <body>
-    <header class="brand-bar">
-      <a class="brand-mark" href="{{ url_for('index') }}" aria-label="Schaduwdraaitool start">
-        <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
-      </a>
-      <p>Samen slim vooruit</p>
-    </header>
+  <body class="app-page mapping-page">
+    <a class="skip-link" href="#main-content">Naar de inhoud</a>
+    <div class="app-shell">
+      {% set active_page = 'mapping' %}
+      {% include '_sidebar.html' %}
 
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">Lokale payroll vergelijking</p>
-        <h1>Schaduwdraaitool</h1>
-        <p>Selecteer twee loonstrookbundels en ontvang een controleerbaar Excelrapport met matches, componentverschillen en OCR-waarschuwingen.</p>
-      </section>
-
-      <section class="tool-surface">
-        <div class="surface-heading">
-          <h2>Documenten vergelijken</h2>
-          <span class="security-chip">Lokaal verwerkt</span>
+      <header class="topbar">
+        <button class="mobile-menu" aria-label="Navigatie openen" aria-expanded="false"><span data-icon="menu"></span></button>
+        <a class="mobile-brand" href="{{ url_for('index') }}" aria-label="Salure schaduwdraaitool">
+          <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
+        </a>
+        <nav class="breadcrumb" aria-label="Broodkruimel"><a href="#implementatie">Implementatie</a><span data-icon="chevron-right"></span><strong>Looncomponent mapping</strong></nav>
+        <div class="top-actions">
+          <label class="theme-control"><span data-icon="moon"></span><span>Donkere modus</span><input id="theme-toggle" type="checkbox" role="switch" /><span class="switch-ui" aria-hidden="true"></span></label>
+          <a class="button secondary" id="new-comparison" href="{{ url_for('upload') }}"><span data-icon="document"></span>Schaduwdraai starten</a>
+          <button class="button primary" id="accept-suggestions">Suggesties accepteren</button>
         </div>
+      </header>
 
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            <div class="alert">
-              {% for message in messages %}
-                <p>{{ message }}</p>
-              {% endfor %}
+      <main id="main-content" class="content">
+        <section class="overview" aria-labelledby="page-title">
+          <div class="intro-block">
+            <div class="title-row"><h1 id="page-title">Looncomponent mapping</h1><button class="icon-button info-button" aria-label="Meer informatie over looncomponent mapping"><span data-icon="info"></span></button></div>
+            <p>Start een schaduwdraai door twee loonstrookdocumenten te uploaden. Beoordeel daarna de looncomponenten en sla mappings op voor volgende vergelijkingen.</p>
+            <div class="project-context">
+              <label for="project-select">Schaduwdraaiproject</label>
+              <select id="project-select" {% if not projects %}disabled{% endif %}>
+                {% if not projects %}<option>Geen projecten beschikbaar</option>{% endif %}
+                {% for project in projects %}
+                  <option value="{{ project.project_id }}" {% if project.project_id == selected_project_id %}selected{% endif %}>{{ project.document_a }} ↔ {{ project.document_b }}</option>
+                {% endfor %}
+              </select>
             </div>
-          {% endif %}
-        {% endwith %}
-
-        <form class="upload-form" action="{{ url_for('compare') }}" method="post" enctype="multipart/form-data">
-          <div class="grid">
-            <label class="file-field">
-              <span>Document A</span>
-              <input type="file" name="document_a" accept="application/pdf,.pdf" required>
-            </label>
-            <label class="file-field">
-              <span>Document B</span>
-              <input type="file" name="document_b" accept="application/pdf,.pdf" required>
-            </label>
-          </div>
-
-          <div class="options">
-            <label>
-              <span>Tolerantie bedrag</span>
-              <input type="text" name="tolerance" value="0.01" inputmode="decimal">
-            </label>
-            <label>
-              <span>Componentmapping CSV</span>
-              <input type="file" name="mapping_csv" accept=".csv,text/csv">
-            </label>
-          </div>
-
-          <label class="mapping-text">
-            <span>Componentmapping plakken</span>
-            <textarea name="mapping_text" rows="6" placeholder="document_a,document_b,canonical&#10;1000 Bruto salaris,SAL_BASIS,Bruto salaris"></textarea>
-          </label>
-
-          <details class="context-details">
-            <summary>Periode, provider of scenario handmatig aanpassen</summary>
-            <div class="context-grid">
-              <label>
-                <span>Periode A</span>
-                <input type="text" name="period_a" placeholder="bijv. 2026-01">
-              </label>
-              <label>
-                <span>Periode B</span>
-                <input type="text" name="period_b" placeholder="bijv. 2026-02">
-              </label>
-              <label>
-                <span>Provider A</span>
-                <input type="text" name="provider_a" placeholder="bijv. AFAS">
-              </label>
-              <label>
-                <span>Provider B</span>
-                <input type="text" name="provider_b" placeholder="bijv. Loket">
-              </label>
-              <label>
-                <span>Scenario A</span>
-                <input type="text" name="scenario_a" placeholder="bijv. proefrun">
-              </label>
-              <label>
-                <span>Scenario B</span>
-                <input type="text" name="scenario_b" placeholder="bijv. productie">
-              </label>
+            <div class="systems" aria-label="Geselecteerde systemen">
+              <article class="system-card">
+                <small id="source-provider">Systeem 1</small><div><span class="afas-badge" id="source-badge">A</span><strong id="source-system-name">Nog geen project</strong></div>
+              </article>
+              <span class="swap-box" data-icon="swap" aria-hidden="true"></span>
+              <article class="system-card">
+                <small id="target-provider">Systeem 2</small><div><strong id="target-system-name">Nog geen project</strong></div>
+              </article>
             </div>
-          </details>
-
-          <div class="actions">
-            <button type="submit">Vergelijk documenten</button>
           </div>
-        </form>
-      </section>
-    </main>
+          <aside class="progress-card" aria-label="Voortgang mapping">
+            <div class="progress-summary"><div class="progress-ring" id="progress-ring" role="img" aria-label="0 procent voltooid"><span id="progress-percent">0%</span></div><div><strong>Voortgang</strong><span id="progress-copy">0 van 0 componenten gemapt</span></div></div>
+            <ul class="stat-list"><li><span class="stat-dot matched"></span><strong id="stat-mapped">0</strong><small>Gemat</small></li><li><span class="stat-dot proposed"></span><strong id="stat-proposed">0</strong><small>Voorgesteld</small></li><li><span class="stat-dot unmapped"></span><strong id="stat-unmapped">0</strong><small>Ongemapt</small></li><li><span class="stat-dot review"></span><strong id="stat-review">0</strong><small>Te beoordelen</small></li></ul>
+          </aside>
+        </section>
+
+        <section class="mapping-section" aria-label="Componenten koppelen">
+          {% if not mapping_workspace %}<div class="no-project"><strong>Nog geen schaduwdraaiproject</strong><span>Start eerst een vergelijking om componenten uit beide systemen te laden.</span><a class="button primary" href="{{ url_for('upload') }}">Nieuwe vergelijking starten</a></div>{% endif %}
+          <div class="mapping-toolbar">
+            <div class="search-group source-tools"><label class="search-box"><span data-icon="search"></span><span class="sr-only">Zoek component in AFAS Profit</span><input id="source-search" type="search" placeholder="Zoek component in AFAS Profit..." /></label><button class="button filter-button" data-side="source" aria-expanded="false"><span data-icon="filter"></span>Filters</button></div>
+            <div class="relation-tools"><button class="button auto-button" id="auto-map"><span data-icon="sparkles"></span>Geselecteerde koppelen</button><label class="relations-toggle"><span>Toon relaties</span><input id="relations-toggle" type="checkbox" checked role="switch" /><span class="switch-ui" aria-hidden="true"></span></label></div>
+            <div class="search-group target-tools"><label class="search-box"><span data-icon="search"></span><span class="sr-only">Zoek component in Excel Payroll</span><input id="target-search" type="search" placeholder="Zoek component in Excel Payroll..." /></label><button class="button filter-button" data-side="target" aria-expanded="false"><span data-icon="filter"></span>Filters</button></div>
+          </div>
+          <div class="filter-panel" id="filter-panel" hidden><strong>Toon status</strong><div id="filter-options"></div><button class="text-button" id="clear-filters">Alle filters wissen</button></div>
+
+          <div class="mapping-grid">
+            <section class="component-panel source-panel" aria-labelledby="source-title">
+              <header class="panel-header"><h2 id="source-title">Systeem 1 <span>(0)</span></h2><span>Naam</span></header>
+              <div class="component-list" id="source-list"></div>
+              <footer class="panel-footer"><strong><span id="source-visible-count">11</span> componenten</strong><span><span id="selected-count">0</span> geselecteerd</span><button class="button action-button" aria-expanded="false" aria-controls="actions-menu">Acties <span data-icon="chevron-down"></span></button><div class="popover actions-menu" id="actions-menu" hidden><button id="mark-review">Markeer ter beoordeling</button><button id="clear-selection">Selectie wissen</button></div></footer>
+            </section>
+
+            <div class="relations-canvas" id="relations-canvas" aria-hidden="true">
+              <svg viewBox="0 0 382 440" preserveAspectRatio="none"></svg>
+            </div>
+
+            <section class="component-panel target-panel" aria-labelledby="target-title">
+              <header class="panel-header"><h2 id="target-title">Systeem 2 <span>(0)</span></h2></header>
+              <div class="component-list" id="target-list"></div>
+              <footer class="panel-footer target-footer"><strong><span id="target-visible-count">12</span> componenten</strong></footer>
+            </section>
+          </div>
+
+          <ul class="legend" aria-label="Legenda"><li><span class="status-icon matched">✓</span>Gemat</li><li><span class="status-icon proposed">✓</span>Voorgesteld</li><li><span class="status-icon review"></span>Te beoordelen</li><li><span class="status-icon unmapped"></span>Ongemapt</li></ul>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script id="mapping-data" type="application/json">{{ mapping_workspace|tojson }}</script>
   </body>
 </html>

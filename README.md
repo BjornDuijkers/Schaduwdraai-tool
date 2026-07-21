@@ -2,6 +2,8 @@
 
 Lokale MVP voor het vergelijken van twee PDF-bundels met loonstroken.
 
+De startpagina (`/`) is de interactieve looncomponent-mappingwerkruimte. De bestaande vergelijk-, review- en downloadroutes blijven beschikbaar voor de oorspronkelijke schaduwdraaiworkflow.
+
 De app blijft lokaal draaien. PDF's worden niet naar een cloudservice gestuurd.
 
 ## Wat de app doet

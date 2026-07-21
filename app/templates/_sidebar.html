@@ -1,0 +1,22 @@
+<aside class="sidebar" aria-label="Primaire navigatie">
+  <div class="brand">
+    <a class="sidebar-brand" href="{{ url_for('index') }}" aria-label="Salure schaduwdraaitool">
+      <img src="{{ url_for('static', filename='assets/salure-logo.svg') }}" alt="Salure">
+    </a>
+  </div>
+  <nav class="primary-nav" aria-label="Hoofdnavigatie">
+    <a class="nav-item {% if active_page == 'upload' %}active{% endif %}" href="{{ url_for('upload') }}" {% if active_page == 'upload' %}aria-current="page"{% endif %}>
+      <span>Schaduwdraai starten</span>
+    </a>
+    <a class="nav-item {% if active_page == 'mapping' %}active{% endif %}" href="{{ url_for('index') }}" {% if active_page == 'mapping' %}aria-current="page"{% endif %}>
+      <span>Looncomponent mapping</span>
+    </a>
+    <a class="nav-item" href="https://salure.nl" target="_blank" rel="noopener noreferrer">
+      <span>Salure.nl</span>
+    </a>
+  </nav>
+  <div class="sidebar-bottom">
+    <a class="support-link" href="mailto:info@salure.nl">Hulp &amp; support</a>
+    <small>Samen slim vooruit</small>
+  </div>
+</aside>

@@ -63,6 +63,54 @@ class UploadFlowTest(unittest.TestCase):
         self.assertGreater(html.index("Waarschuwingen"), html.index("Afwijkingen per loonstrook"))
         self.assertGreater(html.index("Waarschuwingen"), html.index("Nieuwe vergelijking"))
 
+    def test_mapping_page_loads_project_and_batch_mapping_is_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["SCHADUWDRAAI_DB"] = str(Path(tmp) / "test.db")
+            pdf_a = Path(tmp) / "a.pdf"
+            pdf_b = Path(tmp) / "b.pdf"
+            _write_pdf(pdf_a, PDF_A)
+            _write_pdf(pdf_b, PDF_B)
+
+            client = app.test_client()
+            comparison = client.post(
+                "/compare",
+                data={
+                    "document_a": (io.BytesIO(pdf_a.read_bytes()), "a.pdf"),
+                    "document_b": (io.BytesIO(pdf_b.read_bytes()), "b.pdf"),
+                    "tolerance": "0.01",
+                },
+                content_type="multipart/form-data",
+            )
+            project_match = re.search(rb"/review/([a-f0-9]{12})", comparison.data)
+            self.assertIsNotNone(project_match)
+            project_id = project_match.group(1).decode("ascii")
+
+            mapping_page = client.get(f"/?project_id={project_id}")
+            self.assertEqual(mapping_page.status_code, 200)
+            self.assertIn(b"Looncomponent mapping", mapping_page.data)
+            self.assertIn(project_id.encode("ascii"), mapping_page.data)
+            self.assertIn(b"Vakantiegeld", mapping_page.data)
+            self.assertIn(b"mapping.js", mapping_page.data)
+
+            batch = client.post(
+                f"/api/projects/{project_id}/component-aliases/batch",
+                json={
+                    "mappings": [
+                        {
+                            "canonical": "Vakantiegeld",
+                            "source_a": "Vakantiegeld",
+                            "source_b": "Reservering vakantietoeslag",
+                        }
+                    ]
+                },
+            )
+            self.assertEqual(batch.status_code, 200)
+            self.assertTrue(batch.json["ok"])
+            self.assertEqual(batch.json["saved"], 1)
+            aliases = list_component_aliases()
+            self.assertEqual(len(aliases), 1)
+            self.assertEqual(aliases[0]["canonical"], "Vakantiegeld")
+
     def test_review_api_and_issue_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["SCHADUWDRAAI_DB"] = str(Path(tmp) / "test.db")
