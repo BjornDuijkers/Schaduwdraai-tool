@@ -18,7 +18,7 @@ DOB_RE = re.compile(
     re.IGNORECASE,
 )
 EMPLOYEE_CODE_RE = re.compile(
-    r"\b(?:medewerker\s*(?:nummer|nr\.?|code)|personeels\s*(?:nummer|nr\.?)|pers\.?\s*nr\.?|werknemer\s*(?:nummer|nr\.?|code)|employee\s*(?:no\.?|number|id|code)|payroll\s*id)\b\s*[:\-]?\s*(?P<value>[A-Za-z0-9][A-Za-z0-9 ._/-]{1,35})?",
+    r"\b(?:medewerker\s*(?:nummer|nr\.?|code)|medew\.?\s*code|personeels\s*(?:nummer|nr\.?)|pers\.?\s*nr\.?|werknemer\s*(?:nummer|nr\.?|code)|werknr\.?|employee\s*(?:no\.?|number|id|code)|payroll\s*id)\b\s*[:\-]?\s*(?P<value>[A-Za-z0-9][A-Za-z0-9 ._/-]{1,35})?",
     re.IGNORECASE,
 )
 GENERIC_CODE_RE = re.compile(
@@ -180,6 +180,13 @@ def parse_document(extraction: ExtractionResult, *, source: str) -> ParsedDocume
 
 
 def split_payslip_segments(pages: list[PageText]) -> list[list[PageText]]:
+    if _looks_like_db_grid_document(pages):
+        return [[page] for page in pages]
+
+    afas_segments = _split_afas_segments(pages)
+    if afas_segments:
+        return afas_segments
+
     segments: list[list[PageText]] = []
     current: list[PageText] = []
 
@@ -198,7 +205,85 @@ def split_payslip_segments(pages: list[PageText]) -> list[list[PageText]]:
     return segments
 
 
+def _looks_like_db_grid_document(pages: list[PageText]) -> bool:
+    if not pages:
+        return False
+    matches = sum(1 for page in pages if _is_db_grid_page(page))
+    return matches >= max(1, len(pages) // 2)
+
+
+def _is_db_grid_page(page: PageText) -> bool:
+    if not page.words:
+        return False
+    lines = _visual_lines(page.words)
+    has_employee_header = any("werknr" in normalize_key(_line_text(line)) for line in lines)
+    has_specificatie = any(
+        "specificatie" in _compact_line_key(line) and "opbouw" in _compact_line_key(line)
+        for line in lines
+    )
+    return has_employee_header and has_specificatie
+
+
+def _split_afas_segments(pages: list[PageText]) -> list[list[PageText]]:
+    if not pages or not any(_is_afas_profile_page(page) for page in pages):
+        return []
+
+    segments: list[list[PageText]] = []
+    current: list[PageText] = []
+    for page in pages:
+        if _is_afas_identity_page(page):
+            if current:
+                segments.append(current)
+            current = [page]
+            continue
+
+        if _is_afas_calculation_page(page):
+            if current:
+                current.append(page)
+                segments.append(current)
+                current = []
+            else:
+                segments.append([page])
+            continue
+
+        if current:
+            current.append(page)
+        else:
+            segments.append([page])
+
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _is_afas_profile_page(page: PageText) -> bool:
+    key = normalize_key(page.text)
+    return "loonstrook" in key and (
+        "overige gegevens" in key
+        or "loonberekening" in key
+        or "medew code" in key
+    )
+
+
+def _is_afas_identity_page(page: PageText) -> bool:
+    key = normalize_key(page.text)
+    return "loonstrook" in key and "medew code" in key and "loonberekening" not in key
+
+
+def _is_afas_calculation_page(page: PageText) -> bool:
+    key = normalize_key(page.text)
+    return "loonberekening" in key and "omschrijving" in key
+
+
 def extract_name_from_pages(pages: list[PageText], text: str) -> str | None:
+    db_name = _extract_db_grid_name_from_pages(pages)
+    if db_name:
+        return db_name
+
+    afas_name = _extract_afas_header_name_from_pages(pages)
+    if afas_name:
+        return afas_name
+
     for page in pages:
         for line in _visual_lines(page.words):
             for word in line.words:
@@ -312,6 +397,9 @@ def extract_employee_code_from_pages(pages: list[PageText], text: str) -> str | 
         lines = _visual_lines(page.words)
         for index, line in enumerate(lines):
             line_text = _line_text(line)
+            employee_code = _employee_code_from_visual_line(line)
+            if employee_code:
+                return employee_code
             employee_code = _employee_code_from_line(line_text)
             if employee_code:
                 return employee_code
@@ -444,6 +532,11 @@ def extract_components_from_layout(pages: list[PageText]) -> list[Component]:
         if not page.words:
             continue
         lines = _visual_lines(page.words)
+        db_components = _components_from_db_grid_layout(lines)
+        if db_components:
+            components.extend(db_components)
+            continue
+
         loket_components = _components_from_loket_layout(lines)
         if loket_components:
             components.extend(loket_components)
@@ -498,6 +591,61 @@ def _extract_honorific_name(lines: list[str]) -> str | None:
         candidate = _normalize_person_prefix(match.group("name"))
         if _looks_like_person_name(candidate):
             return candidate
+    return None
+
+
+def _extract_db_grid_name_from_pages(pages: list[PageText]) -> str | None:
+    for page in pages:
+        if page.words and not _is_db_grid_page(page):
+            continue
+        for line in _visual_lines(page.words):
+            words = line.words
+            for index, word in enumerate(words):
+                key = normalize_key(word.text)
+                if key not in {"de", "dhr", "dhr.", "mevrouw", "mw"}:
+                    continue
+                if key == "de" and index + 1 < len(words) and normalize_key(words[index + 1].text) != "heer":
+                    continue
+                start = index + 2 if key == "de" else index + 1
+                name_words: list[TextWord] = []
+                previous_x1 = words[start - 1].x1 if start > 0 else word.x1
+                for candidate in words[start:]:
+                    candidate_key = normalize_key(candidate.text)
+                    if candidate.x0 - previous_x1 > 70:
+                        break
+                    if candidate_key in {"valid", "digital", "business", "bv", "b v", "n v", "nv"}:
+                        break
+                    if re.search(r"\d", candidate.text):
+                        break
+                    name_words.append(candidate)
+                    previous_x1 = candidate.x1
+                candidate_name = clean_line(" ".join(item.text for item in name_words))
+                candidate_name = _normalize_person_prefix(candidate_name)
+                if _looks_like_person_name(candidate_name):
+                    return candidate_name
+    return None
+
+
+def _extract_afas_header_name_from_pages(pages: list[PageText]) -> str | None:
+    for page in pages:
+        if not _is_afas_profile_page(page):
+            continue
+        for line in _visual_lines(page.words):
+            if line.y > 120:
+                continue
+            line_text = _line_text(line)
+            key = normalize_key(line_text)
+            if any(skip in key for skip in ("loonstrook", "gemaakt op", "datum van", "datum t m")):
+                continue
+            month = _month_from_text(line_text)
+            if not month:
+                continue
+            candidate = re.sub(rf"\b{re.escape(month)}\b", "", line_text, flags=re.IGNORECASE, count=1)
+            candidate = clean_line(candidate.strip(" :-"))
+            if DATE_RE.search(candidate) or re.search(r"\d{4}\s?[A-Z]{2}", candidate):
+                continue
+            if _looks_like_person_name(candidate):
+                return candidate
     return None
 
 
@@ -653,6 +801,118 @@ def _components_from_visual_table(table: _PayrollTable) -> list[Component]:
     return components
 
 
+def _components_from_db_grid_layout(lines: list[_VisualLine]) -> list[Component]:
+    header_index = _db_grid_header_index(lines)
+    if header_index is None:
+        return []
+
+    column_line_index = _db_grid_column_line_index(lines, header_index)
+    if column_line_index is None:
+        return []
+
+    column_line = lines[column_line_index]
+    columns = _columns_from_db_grid_header(lines[header_index], column_line)
+    data_columns = [column for column in columns if column.role != "omschrijving"]
+    if len(data_columns) < 2:
+        return []
+
+    first_data_x = min(column.x for column in data_columns)
+    label_left = max(0, first_data_x - 95)
+    label_right = first_data_x - 12
+
+    components: list[Component] = []
+    for line in lines[column_line_index + 1 :]:
+        if line.y - lines[header_index].y > 250:
+            break
+
+        label = _label_text(line, label_left, label_right)
+        if not label or _skip_db_grid_label(label):
+            continue
+
+        role_amounts = _role_amounts(line, columns, label_right)
+        amount = _db_grid_period_amount(role_amounts)
+        if amount is None:
+            continue
+
+        component = _component_from_label_amount(label, amount, role_amounts)
+        if component:
+            components.append(component)
+
+    bottom_total = _db_grid_bottom_total(lines)
+    if bottom_total is not None:
+        components.append(
+            Component(
+                code=None,
+                label="Uit te betalen loon",
+                normalized_label=normalize_key("Uit te betalen loon"),
+                amount=bottom_total,
+                raw_line=f"Uit te betalen loon {bottom_total}",
+            )
+        )
+    return components
+
+
+def _db_grid_header_index(lines: list[_VisualLine]) -> int | None:
+    for index, line in enumerate(lines):
+        compact = _compact_line_key(line)
+        if "specificatie" in compact and "opbouw" in compact and "tmperiode" in compact:
+            return index
+    return None
+
+
+def _db_grid_column_line_index(lines: list[_VisualLine], header_index: int) -> int | None:
+    for index in range(header_index + 1, min(header_index + 5, len(lines))):
+        key = normalize_key(_line_text(lines[index]))
+        if key.count("tabel") >= 2 and key.count("tarief") >= 2:
+            return index
+    return None
+
+
+def _columns_from_db_grid_header(header_line: _VisualLine, column_line: _VisualLine) -> list[_ColumnRole]:
+    tabels = [word.x0 for word in column_line.words if normalize_key(word.text) == "tabel"]
+    tarifs = [word.x0 for word in column_line.words if normalize_key(word.text) == "tarief"]
+    if len(tabels) < 2 or len(tarifs) < 2:
+        return []
+    tm_x = max((word.x0 for word in header_line.words), default=tarifs[-1] + 80)
+    return [
+        _ColumnRole("specificatie_tabel", tabels[0]),
+        _ColumnRole("specificatie_tarief", tarifs[0]),
+        _ColumnRole("opbouw_tabel", tabels[1]),
+        _ColumnRole("opbouw_tarief", tarifs[1]),
+        _ColumnRole("tm_periode", tm_x),
+    ]
+
+
+def _db_grid_period_amount(role_amounts: dict[str, Decimal]) -> Decimal | None:
+    specificatie_roles = ("specificatie_tabel", "specificatie_tarief")
+    if any(role in role_amounts for role in specificatie_roles):
+        return sum((role_amounts[role] for role in specificatie_roles if role in role_amounts), Decimal("0"))
+    return _first_amount(role_amounts, ("tm_periode", "opbouw_tabel", "opbouw_tarief"))
+
+
+def _skip_db_grid_label(label: str) -> bool:
+    key = normalize_key(label)
+    if not key:
+        return True
+    return key in {"tabel", "tarief", "specificatie", "opbouw", "tm periode", "heff pl loon"}
+
+
+def _db_grid_bottom_total(lines: list[_VisualLine]) -> Decimal | None:
+    for line in reversed(lines):
+        compact = _compact_line_key(line)
+        if "uittebetalen" not in compact:
+            continue
+        amounts = [
+            parse_amount(match.group("amount"))
+            for word in line.words
+            for match in AMOUNT_RE.finditer(word.text)
+        ]
+        amounts = [amount for amount in amounts if amount is not None]
+        if amounts:
+            return amounts[-1]
+    return None
+
+
 def _components_from_loket_layout(lines: list[_VisualLine]) -> list[Component]:
     header_index: int | None = None
     spec_x: float | None = None
@@ -778,6 +1038,10 @@ def _line_text(line: _VisualLine) -> str:
     return clean_line(" ".join(word.text for word in line.words))
 
 
+def _compact_line_key(line: _VisualLine) -> str:
+    return re.sub(r"[^a-z0-9]", "", normalize_key(_line_text(line)))
+
+
 def _label_text(line: _VisualLine, label_left: float, label_right: float) -> str:
     return clean_line(
         " ".join(
@@ -801,6 +1065,18 @@ def _date_from_text(text: str) -> str | None:
     if not match:
         return None
     return _normalize_date(match.group(0))
+
+
+def _employee_code_from_visual_line(line: _VisualLine) -> str | None:
+    for index, word in enumerate(line.words):
+        key = normalize_key(word.text)
+        if key not in {"medew code", "werknr", "werknr."}:
+            continue
+        for candidate in line.words[index + 1 : index + 5]:
+            employee_code = _clean_employee_code(candidate.text)
+            if employee_code:
+                return employee_code
+    return None
 
 
 def _employee_code_from_line(line: str) -> str | None:
@@ -1033,7 +1309,9 @@ def _duplicate_identity_keys(payslips: list[Payslip]) -> dict[str, int]:
     for payslip in payslips:
         if not payslip.identity_complete:
             continue
+        if payslip.employee_code:
+            continue
         identity = payslip.employee_code or normalize_key(payslip.employee_name or "")
-        key = f"{identity}|{payslip.birth_date}"
+        key = f"{identity}|{payslip.birth_date}|{normalize_period(payslip.period) or ''}"
         counts[key] = counts.get(key, 0) + 1
     return {key: count for key, count in counts.items() if count > 1}

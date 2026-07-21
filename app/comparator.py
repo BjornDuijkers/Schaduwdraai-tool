@@ -16,6 +16,7 @@ from .models import (
     ParsedDocument,
     Payslip,
 )
+from .parser import normalize_period
 from .text_utils import normalize_key
 
 
@@ -36,6 +37,16 @@ DEFAULT_COMPONENT_ALIASES = {
     "bruto": "Brutoloon",
     "bijtelling prive gebruik auto": "Fiscale bijtelling auto",
     "fisc byt auto": "Fiscale bijtelling auto",
+    "bijtelling privegebruik fiets": "Fiscale bijtelling fiets",
+    "fisc byt fiets": "Fiscale bijtelling fiets",
+    "medewerkersbijdrage fiets": "Medewerkersbijdrage fiets",
+    "wn bydr fiets": "Medewerkersbijdrage fiets",
+    "eigen bijdrage auto": "Eigen bijdrage auto",
+    "wn bydr auto": "Eigen bijdrage auto",
+    "aftrek prive gebruik auto": "Aftrek prive gebruik auto",
+    "aftrek pr gebr": "Aftrek prive gebruik auto",
+    "er leaseauto": "ER leaseauto",
+    "div netto inh": "ER leaseauto",
     "loonheffing": "Loonheffing",
     "lb pr volksvz": "Loonheffing",
     "pensioen": "Pensioenpremie",
@@ -48,6 +59,9 @@ DEFAULT_COMPONENT_ALIASES = {
     "personeelsver": "Personeelsvereniging",
     "uitbetaling flexvergoeding": "Flexvergoeding",
     "flex vergoed": "Flexvergoeding",
+    "o u athlon flex": "O.U. Athlon Flex",
+    "o u athlonflex": "O.U. Athlon Flex",
+    "ou athlonflex": "O.U. Athlon Flex",
     "uit te betalen loon": "Uit te betalen loon",
 }
 
@@ -95,7 +109,10 @@ def compare_documents(
     warnings.extend(_payslip_warnings(doc_b))
     warnings.extend(_context_warnings(doc_a, doc_b))
 
-    matched_pairs, employee_rows, unmatched_b = _match_payslips(doc_a.payslips, doc_b.payslips)
+    comparison_payslips_a = _aggregate_payslips_for_comparison(doc_a.payslips)
+    comparison_payslips_b = _aggregate_payslips_for_comparison(doc_b.payslips)
+
+    matched_pairs, employee_rows, unmatched_b = _match_payslips(comparison_payslips_a, comparison_payslips_b)
     component_rows: list[ComponentComparison] = []
 
     mapping_index = _mapping_index(mappings)
@@ -211,6 +228,56 @@ def _match_payslips(
         )
 
     return matched, employee_rows, remaining_b
+
+
+def _aggregate_payslips_for_comparison(payslips: list[Payslip]) -> list[Payslip]:
+    grouped: dict[str, list[Payslip]] = {}
+    passthrough: list[Payslip] = []
+    for payslip in payslips:
+        key = _payslip_group_key(payslip)
+        if not key:
+            passthrough.append(payslip)
+            continue
+        grouped.setdefault(key, []).append(payslip)
+
+    merged = [_merge_payslip_group(group) for group in grouped.values()]
+    return sorted(merged + passthrough, key=lambda item: (item.page_numbers[0] if item.page_numbers else 0))
+
+
+def _payslip_group_key(payslip: Payslip) -> str | None:
+    period = _period_key(payslip)
+    if payslip.employee_code and payslip.birth_date:
+        return f"code:{normalize_key(payslip.employee_code)}|{payslip.birth_date}|{period}"
+    if payslip.employee_name and payslip.birth_date:
+        return f"name:{normalize_key(payslip.employee_name)}|{payslip.birth_date}|{period}"
+    return None
+
+
+def _merge_payslip_group(group: list[Payslip]) -> Payslip:
+    if len(group) == 1:
+        return group[0]
+
+    first = group[0]
+    page_numbers = sorted({page for payslip in group for page in payslip.page_numbers})
+    components = [component for payslip in group for component in payslip.components]
+    warnings = [
+        warning
+        for payslip in group
+        for warning in payslip.warnings
+        if warning != "Geen looncomponentregels met bedragen gevonden."
+    ]
+    return Payslip(
+        source=first.source,
+        source_name=first.source_name,
+        employee_name=next((payslip.employee_name for payslip in group if payslip.employee_name), None),
+        birth_date=next((payslip.birth_date for payslip in group if payslip.birth_date), None),
+        employee_code=next((payslip.employee_code for payslip in group if payslip.employee_code), None),
+        period=next((payslip.period for payslip in group if payslip.period), None),
+        page_numbers=page_numbers,
+        components=components,
+        warnings=warnings,
+        raw_text="\n".join(payslip.raw_text for payslip in group if payslip.raw_text),
+    )
 
 
 def _compare_components(
@@ -371,6 +438,16 @@ def _component_label(component: Component) -> str:
     return component.label
 
 
+def _period_key(payslip: Payslip) -> str:
+    return normalize_period(payslip.period) or normalize_key(payslip.period or "")
+
+
+def _periods_compatible(payslip_a: Payslip, payslip_b: Payslip) -> bool:
+    period_a = _period_key(payslip_a)
+    period_b = _period_key(payslip_b)
+    return not period_a or not period_b or period_a == period_b
+
+
 def _employee_key(payslip: Payslip) -> str | None:
     if not payslip.employee_name or not payslip.birth_date:
         return None
@@ -391,7 +468,7 @@ def _find_exact_code_birthdate_match(
     if not key:
         return None
     for candidate in candidates:
-        if _employee_code_key(candidate) == key:
+        if _employee_code_key(candidate) == key and _periods_compatible(payslip_a, candidate):
             return candidate
     return None
 
@@ -404,7 +481,7 @@ def _find_exact_name_birthdate_match(
     if not key:
         return None
     for candidate in candidates:
-        if _employee_key(candidate) == key:
+        if _employee_key(candidate) == key and _periods_compatible(payslip_a, candidate):
             return candidate
     return None
 
@@ -423,12 +500,29 @@ def _code_conflict_note(payslip_a: Payslip, payslip_b: Payslip) -> str:
 def _name_conflict_note(payslip_a: Payslip, payslip_b: Payslip) -> str:
     if not payslip_a.employee_name or not payslip_b.employee_name:
         return ""
-    if normalize_key(payslip_a.employee_name) == normalize_key(payslip_b.employee_name):
+    if _person_name_compare_key(payslip_a.employee_name) == _person_name_compare_key(payslip_b.employee_name):
         return ""
     return (
         "Medewerker code en geboortedatum matchen, maar namen verschillen: "
         f"A={payslip_a.employee_name}, B={payslip_b.employee_name}."
     )
+
+
+def _person_name_compare_key(name: str) -> str:
+    tokens = normalize_key(name).split()
+    normalized: list[str] = []
+    initials = ""
+    for token in tokens:
+        if len(token) == 1:
+            initials += token
+            continue
+        if initials:
+            normalized.append(initials)
+            initials = ""
+        normalized.append(token)
+    if initials:
+        normalized.append(initials)
+    return " ".join(normalized)
 
 
 def _find_fuzzy_birthdate_match(
@@ -442,6 +536,8 @@ def _find_fuzzy_birthdate_match(
 
     for candidate in candidates:
         if candidate.birth_date != payslip_a.birth_date or not candidate.employee_name:
+            continue
+        if not _periods_compatible(payslip_a, candidate):
             continue
         score = SequenceMatcher(None, name_a, normalize_key(candidate.employee_name)).ratio()
         if score > best_score:

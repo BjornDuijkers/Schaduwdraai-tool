@@ -492,6 +492,202 @@ Periode: Februari 2026
         self.assertTrue(any("Providerwissel" in warning for warning in result.warnings))
         self.assertTrue(any("scenario" in warning.lower() for warning in result.warnings))
 
+    def test_db_grid_profile_extracts_one_payslip_per_page(self) -> None:
+        doc = parse_document(
+            ExtractionResult(
+                "Loonstroken DB 01-2026.pdf",
+                [
+                    _db_grid_page(1, "104966", "19-03-1981", "T FEITSMA", Decimal("5350.00")),
+                    _db_grid_page(2, "105876", "12-09-1965", "OJC GIRAUD", Decimal("7736.00")),
+                ],
+            ),
+            source="A",
+        )
+
+        self.assertEqual(len(doc.payslips), 2)
+        self.assertEqual(doc.payslips[0].employee_code, "104966")
+        self.assertEqual(doc.payslips[0].employee_name, "T Feitsma")
+        self.assertEqual(doc.payslips[0].birth_date, "1981-03-19")
+        self.assertEqual(doc.payslips[0].period, "01/2026")
+        labels = {component.label: component.amount for component in doc.payslips[0].components}
+        self.assertEqual(labels["LOON/SALARIS"], Decimal("5350.00"))
+        self.assertEqual(labels["BRUTO"], Decimal("5594.40"))
+        self.assertNotIn("HEFF.PL.LOON", labels)
+
+    def test_afas_profile_groups_identity_and_calculation_pages(self) -> None:
+        doc = parse_document(
+            ExtractionResult(
+                "AFAS Valid DB.pdf",
+                [
+                    _afas_identity_page(1, "104966", "19-03-1981", "T. Feitsma"),
+                    _afas_calculation_page(2, "T. Feitsma", Decimal("5350.00")),
+                ],
+            ),
+            source="B",
+        )
+
+        self.assertEqual(len(doc.payslips), 1)
+        payslip = doc.payslips[0]
+        self.assertEqual(payslip.page_numbers, [1, 2])
+        self.assertEqual(payslip.employee_code, "104966")
+        self.assertEqual(payslip.employee_name, "T. Feitsma")
+        self.assertEqual(payslip.birth_date, "1981-03-19")
+        self.assertEqual(len(payslip.components), 3)
+        self.assertEqual(payslip.components[0].label, "Salaris (Uit uren gewerkt)")
+
+    def test_compare_aggregates_duplicate_db_payslips_by_employee_period(self) -> None:
+        doc_a = parse_document(
+            ExtractionResult(
+                "Loonstroken DB 01-2026.pdf",
+                [
+                    _db_grid_page(1, "108025", "30-03-1993", "JMA VERBERK", Decimal("3106.13")),
+                    _db_grid_page(2, "108025", "30-03-1993", "JMA VERBERK", Decimal("1227.27")),
+                ],
+            ),
+            source="A",
+        )
+        doc_b = parse_document(
+            ExtractionResult(
+                "AFAS Valid DB.pdf",
+                [
+                    _afas_identity_page(1, "108025", "30-03-1993", "J.M.A. Verberk"),
+                    _afas_calculation_page(2, "J.M.A. Verberk", Decimal("4333.40")),
+                ],
+            ),
+            source="B",
+        )
+
+        result = compare_documents(doc_a, doc_b)
+
+        self.assertEqual(result.summary["loonstroken_document_a"], 2)
+        self.assertEqual(result.summary["gematchte_medewerkers"], 1)
+        self.assertEqual(result.summary["alleen_in_a"], 0)
+        self.assertEqual(result.summary["alleen_in_b"], 0)
+        self.assertEqual(result.employees[0].source_a_pages, "1, 2")
+        salary = next(row for row in result.components if row.canonical_component == "Salaris")
+        self.assertEqual(salary.status, "OK")
+        self.assertEqual(salary.amount_a, Decimal("4333.40"))
+        self.assertEqual(salary.amount_b, Decimal("4333.40"))
+        self.assertEqual(result.warnings, [])
+
+def _db_grid_page(
+    page_number: int,
+    employee_code: str,
+    birth_date: str,
+    name: str,
+    salary: Decimal,
+) -> PageText:
+    bonus = Decimal("244.40")
+    gross = salary + bonus
+    text = "\n".join(
+        [
+            "Werknr.",
+            f"{employee_code} {birth_date} 01-08-2012",
+            f"Geb. datum {birth_date}",
+            "Functie Strook Volgnr. Runnr. Datum run Verl. per.",
+            "ALGEMEEN PERIODE 1 1 20-01-2026 01/2026",
+            f"DE HEER {name}",
+            "S P E C I F I C A T I E O P B O U W T M - P E R I O D E",
+        ]
+    )
+    words = []
+    words += _line_words(35, [(35, "Werknr."), (250, "Geb."), (275, "datum")])
+    words += _line_words(47, [(40, employee_code), (250, birth_date), (310, "01-08-2012")])
+    words += _line_words(104, [(40, "ALGEMEEN"), (250, "PERIODE"), (520, "01/2026")])
+    words += _line_words(162, [(62, "DE"), (76, "HEER"), (100, name.split()[0]), (130, name.split()[-1]), (326, "VALID")])
+    words += _line_words(
+        272,
+        [
+            (305, "S"), (311, "P"), (316, "E"), (321, "C"), (327, "I"), (332, "F"),
+            (338, "I"), (343, "C"), (349, "A"), (354, "T"), (359, "I"), (364, "E"),
+            (433, "O"), (440, "P"), (445, "B"), (451, "O"), (457, "U"), (463, "W"),
+            (519, "T"), (525, "M"), (532, "-"), (536, "P"), (541, "E"), (546, "R"),
+            (552, "I"), (556, "O"), (562, "D"), (569, "E"),
+        ],
+    )
+    words += _line_words(
+        284,
+        [(98, "Periode"), (142, "Tm-periode"), (295, "Tabel"), (353, "Tarief"), (414, "Tabel"), (469, "Tarief")],
+    )
+    words += _line_words(
+        295,
+        [(204, "LOON/SALARIS"), (298, _amount(salary)), (417, _amount(salary)), (547, _amount(salary))],
+    )
+    words += _line_words(
+        305,
+        [(204, "BONUS"), (229, "MND"), (363, _amount(bonus)), (482, _amount(bonus)), (553, _amount(bonus))],
+    )
+    words += _line_words(
+        315,
+        [(204, "HEFF.PL.LOON"), (298, _amount(gross)), (547, _amount(gross))],
+    )
+    words += _line_words(
+        325,
+        [(204, "BRUTO"), (298, _amount(salary)), (363, _amount(bonus)), (547, _amount(gross))],
+    )
+    return PageText(page_number, text, words=words)
+
+
+def _afas_identity_page(page_number: int, employee_code: str, birth_date: str, name: str) -> PageText:
+    text = "\n".join(
+        [
+            "Loonstrook",
+            "Overige gegevens",
+            f"Januari {name}",
+            f"Medew.code {employee_code}",
+            f"Geboortedatum {birth_date}",
+        ]
+    )
+    words = []
+    words += _line_words(34, [(244, "Januari"), (320, name.split()[0]), (350, name.split()[-1])])
+    words += _line_words(427, [(60, "Medew.code"), (225, employee_code), (290, "Parttime")])
+    words += _line_words(441, [(60, "Geboortedatum"), (225, birth_date)])
+    return PageText(page_number, text, words=words)
+
+
+def _afas_calculation_page(page_number: int, name: str, salary: Decimal) -> PageText:
+    holiday = (salary * Decimal("0.08")).quantize(Decimal("0.01"))
+    gross = salary + holiday
+    text = "\n".join(["Loonstrook", "Loonberekening", f"Januari {name}", "Omschrijving"])
+    words = []
+    words += _line_words(34, [(244, "Januari"), (320, name.split()[0]), (350, name.split()[-1])])
+    words += _line_words(109, [(60, "Loonberekening")])
+    words += _line_words(
+        133,
+        [
+            (18, "Omschrijving"),
+            (213, "Aantal"),
+            (281, "Basis"),
+            (336, "Periode"),
+            (414, "T/m"),
+            (440, "periode"),
+            (500, "Normaal"),
+            (570, "Bijzonder"),
+        ],
+    )
+    words += _line_words(
+        156,
+        [(18, "Salaris"), (50, "(Uit"), (80, "uren"), (115, "gewerkt)"), (336, _amount(salary)), (500, _amount(salary))],
+    )
+    words += _line_words(
+        168,
+        [(18, "Periodieke"), (70, "uitbetaling"), (135, "vakantiegeld"), (336, _amount(holiday)), (500, _amount(holiday))],
+    )
+    words += _line_words(201, [(18, "Brutoloon"), (336, _amount(gross))])
+    return PageText(page_number, text, words=words)
+
+
+def _line_words(y: float, items: list[tuple[float, str]]) -> list[TextWord]:
+    return [_word(x, y, text) for x, text in items]
+
+
+def _word(x: float, y: float, text: str) -> TextWord:
+    return TextWord(x, y, x + max(len(text) * 4.2, 8), y + 8, text)
+
+
+def _amount(value: Decimal) -> str:
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 if __name__ == "__main__":
     unittest.main()
